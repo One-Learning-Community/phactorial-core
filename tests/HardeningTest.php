@@ -100,14 +100,14 @@ final class HardeningTest extends TestCase
 
         $node = Math::mathml($input);
 
-        self::assertStringNotContainsString('PCEXPANDED', (new MathmlWriter())->write($node));
+        self::assertStringNotContainsString('PCEXPANDED', MathmlWriter::write($node));
     }
 
     public function test_utf16_mathml_without_a_doctype_still_reads(): void
     {
         $input = "\xFF\xFE" . mb_convert_encoding('<math><mi>x</mi></math>', 'UTF-16LE', 'UTF-8');
 
-        self::assertStringContainsString('x', (new MathmlWriter())->write(Math::mathml($input)));
+        self::assertStringContainsString('x', MathmlWriter::write(Math::mathml($input)));
     }
 
     /** @return iterable<string, array{string}> */
@@ -124,6 +124,6 @@ final class HardeningTest extends TestCase
         $xml = '<?xml version="1.0"?><!DOCTYPE math [<!ENTITY boom "PCEXPANDED">]><math><mi>&boom;</mi></math>';
         $node = Math::mathml(mb_convert_encoding($xml, $encoding, 'UTF-8'));
 
-        self::assertStringNotContainsString('PCEXPANDED', (new MathmlWriter())->write($node));
+        self::assertStringNotContainsString('PCEXPANDED', MathmlWriter::write($node));
     }
 }

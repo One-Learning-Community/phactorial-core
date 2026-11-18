@@ -7,16 +7,19 @@ namespace Phactorial\Exception;
 /** The font file cannot be used for math layout: it is a collection, CFF2 or CID-keyed, malformed, or has no MATH table. */
 final class UnsupportedFont extends \InvalidArgumentException
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public readonly string $path, string $reason)
     {
         parent::__construct($reason);
     }
 
+    /** @internal Engine detail, not public API. */
     public static function cff(string $path): self
     {
         return new self($path, "$path is a CFF2 (variable CFF) font, which the math font reader does not read; use a static font");
     }
 
+    /** @internal Engine detail, not public API. */
     public static function noMathTable(string $path): self
     {
         return new self($path, "$path has no MATH table, so it is not a math font");

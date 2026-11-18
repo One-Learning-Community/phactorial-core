@@ -23,9 +23,15 @@ final class Identifier extends Node
      *
      * $function marks a function name (sin, log, \operatorname{foo}): TeX's Op class, which takes a thin space after it and
      * before it next to an ordinary. A multi-letter upright name that is not a function (`\mathrm{Fe}`, `kg`) is a plain ordinary.
+     *
+     * @internal Engine detail, not public API.
      */
-    public function __construct(string $name, public readonly ?bool $italic = null, public readonly bool $function = false)
-    {
+    public function __construct(
+        string $name,
+        /** @internal Engine detail, not public API. */
+        public readonly ?bool $italic = null,
+        public readonly bool $function = false,
+    ) {
         $this->name = Utf8::clean($name);
         $this->upright = $italic === null ? mb_strlen($this->name) > 1 : ! $italic;
     }

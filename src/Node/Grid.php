@@ -13,7 +13,9 @@ use Phactorial\Layout\Context;
  */
 final class Grid extends Node
 {
+    /** @internal Engine detail, not public API. */
     public const COLUMN_ALIGN = ['left', 'center', 'right'];
+    /** @internal Engine detail, not public API. */
     public const ROW_ALIGN = ['baseline', 'axis', 'center', 'top', 'bottom'];
 
     /** @var list<list<Node>> every row padded to the widest */
@@ -33,6 +35,8 @@ final class Grid extends Node
      * @param bool $alignment the columns are alignment points (aligned/align): writers that can say so use an equation array
      *
      * @throws \InvalidArgumentException for an unknown alignment or a negative or non-finite spacing
+     *
+     * @internal Engine detail, not public API.
      */
     public function __construct(
         array $rows,
@@ -90,8 +94,6 @@ final class Grid extends Node
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

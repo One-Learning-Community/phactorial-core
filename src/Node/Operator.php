@@ -36,6 +36,8 @@ final class Operator extends Node
      * @param ?float $maxSize target total height in em, clamping the natural height from above; null leaves it free.
      *        A size is a target met by the smallest font variant (or assembly) at least that tall, as TeX's \big does,
      *        so the drawn height may overshoot it. An explicit size wins over display-style large-operator sizing.
+     *
+     * @internal Engine detail, not public API.
      */
     public function __construct(
         string $char,
@@ -56,13 +58,21 @@ final class Operator extends Node
         }
     }
 
-    /** Whether this is a large operator (a sum, an integral) in the given form: drawn bigger in display style. */
+    /**
+     * Whether this is a large operator (a sum, an integral) in the given form: drawn bigger in display style.
+     *
+     * @internal Engine detail, not public API.
+     */
     public function isLargeop(string $form): bool
     {
         return $this->largeop ?? OperatorDictionary::lookup($this->char, $form)['largeop'];
     }
 
-    /** Whether limits move to the side as scripts in inline style. */
+    /**
+     * Whether limits move to the side as scripts in inline style.
+     *
+     * @internal Engine detail, not public API.
+     */
     public function hasMovableLimits(string $form): bool
     {
         return $this->movablelimits ?? OperatorDictionary::lookup($this->char, $form)['movablelimits'];

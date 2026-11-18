@@ -16,7 +16,11 @@ final class Fenced extends Node
     public readonly string $open;
     public readonly string $close;
 
-    /** Invalid UTF-8 in a delimiter is replaced silently here; the Math builders also record a note. */
+    /**
+     * Invalid UTF-8 in a delimiter is replaced silently here; the Math builders also record a note.
+     *
+     * @internal Engine detail, not public API.
+     */
     public function __construct(string $open, string $close, public readonly Node $content)
     {
         $this->open = Utf8::clean($open);
@@ -25,8 +29,6 @@ final class Fenced extends Node
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

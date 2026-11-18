@@ -11,6 +11,7 @@ use Phactorial\MathNote;
 /** Content a reader could not render faithfully: what stands in for it (or nothing) and the note saying why. */
 final class Fallback extends Node
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public readonly ?Node $content, public readonly MathNote $note)
     {
     }
@@ -60,8 +61,6 @@ final class Fallback extends Node
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

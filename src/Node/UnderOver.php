@@ -40,6 +40,7 @@ final class UnderOver extends Node
      */
     public const ARROWS = '←→↔↚↛↜↝↞↠↢↣↤↦↩↪↫↬↭↮↹↼↽⇀⇁⇄⇆⇇⇉⇋⇌⇍⇎⇏⇐⇒⇔⇚⇛⇜⇝⇠⇢⇤⇥⇦⇨⇰⇴⇶⇷⇸⇹⇺⇻⇼⇽⇾⇿⟴⟵⟶⟷⟸⟹⟺⟻⟼⟽⟾⟿⤀⤁⤂⤃⤄⤅⤆⤇⤌⤍⤎⤏⤐⤑⤔⤕⤖⤗⤘⤙⤚⤛⤜⤝⤞⤟⤠⥂⥃⥄⥅⥆⥇⥈⥊⥋⥎⥐⥒⥓⥖⥗⥚⥛⥞⥟⥢⥤⥦⥧⥨⥩⥪⥫⥬⥭⥰⥱⥲⥳⥴⥵⬄⬅⬌⬰⬱⬲⬳⬴⬵⬶⬷⬸⬹⬺⬻⬼⬽⬾⭀⭁⭂⭃⭄⭅⭆⭇⭈⭉⭊⭋⭌⭠⭢⭤⭪⭬⭰⭲⭺⭼⮀⮂⮄⮆⮕=';
 
+    /** @internal Engine detail, not public API. */
     public function __construct(
         public readonly Node $base,
         public readonly ?Node $under,
@@ -54,8 +55,6 @@ final class UnderOver extends Node
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

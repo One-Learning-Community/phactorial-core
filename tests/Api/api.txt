@@ -1,0 +1,239 @@
+Phactorial\Exception\MissingExtension | final class extends RuntimeException implements Stringable, Throwable
+Phactorial\Exception\MissingExtension::$extension | readonly protected(set) string
+Phactorial\Exception\UnsupportedFont | final class extends InvalidArgumentException implements Stringable, Throwable
+Phactorial\Exception\UnsupportedFont::$path | readonly protected(set) string
+Phactorial\Font\Font | final class
+Phactorial\Font\Font::$numGlyphs | readonly protected(set) int
+Phactorial\Font\Font::$unitsPerEm | readonly protected(set) int
+Phactorial\Font\Font::fromFile() | static (string $path): self
+Phactorial\Font\Font::gid() | (int $codePoint): int
+Phactorial\Font\Font::outlinePath() | (int $gid): string
+Phactorial\Layout\Box | final class
+Phactorial\Layout\Box::$ascent | float
+Phactorial\Layout\Box::$descent | float
+Phactorial\Layout\Box::$items | hooks{get} array ; @var list<DisplayItem>
+Phactorial\Layout\Box::$width | float
+Phactorial\Layout\Box::each() | (callable $visit): void ; @param $visit callable(DisplayItem, float, float): void
+Phactorial\Layout\Box::height() | (): float
+Phactorial\Layout\Box::notes() | (): array ; @return list<MathNote>
+Phactorial\Layout\DisplayItem | interface
+Phactorial\Layout\DisplayItem::translated() | abstract (float $dx, float $dy): static
+Phactorial\Layout\Glyph | final readonly class implements Phactorial\Layout\DisplayItem
+Phactorial\Layout\Glyph::$gid | readonly protected(set) int
+Phactorial\Layout\Glyph::$size | readonly protected(set) float
+Phactorial\Layout\Glyph::$sx | readonly protected(set) float
+Phactorial\Layout\Glyph::$sy | readonly protected(set) float
+Phactorial\Layout\Glyph::$text | readonly protected(set) ?string
+Phactorial\Layout\Glyph::$x | readonly protected(set) float
+Phactorial\Layout\Glyph::$y | readonly protected(set) float
+Phactorial\Layout\Glyph::translated() | (float $dx, float $dy): static
+Phactorial\Layout\Rule | final readonly class implements Phactorial\Layout\DisplayItem
+Phactorial\Layout\Rule::$h | readonly protected(set) float
+Phactorial\Layout\Rule::$w | readonly protected(set) float
+Phactorial\Layout\Rule::$x | readonly protected(set) float
+Phactorial\Layout\Rule::$y | readonly protected(set) float
+Phactorial\Layout\Rule::translated() | (float $dx, float $dy): static
+Phactorial\Math | final class
+Phactorial\Math::BIG_SIZES | const = array ( 0 => 1.2, 1 => 1.8, 2 => 2.4, 3 => 3.0, )
+Phactorial\Math::accent() | static (Phactorial\Node\Node|string $base, string $mark): Phactorial\Node\UnderOver
+Phactorial\Math::aligned() | static (array $rows, float $pairGap = 2.0): Phactorial\Node\Grid ; @param $rows list<list<string|Node>> ; @param $pairGap float
+Phactorial\Math::big() | static (string $delimiter, int $step): Phactorial\Node\Operator
+Phactorial\Math::bigOp() | static (string $operator, Phactorial\Node\Node|string|null $under = NULL, Phactorial\Node\Node|string|null $over = NULL): Phactorial\Node\Node
+Phactorial\Math::binom() | static (Phactorial\Node\Node|string $top, Phactorial\Node\Node|string $bottom): Phactorial\Node\Fenced
+Phactorial\Math::cases() | static (array $rows): Phactorial\Node\Fenced ; @param $rows list<list<string|Node>>
+Phactorial\Math::dot() | static (Phactorial\Node\Node|string $base): Phactorial\Node\UnderOver
+Phactorial\Math::fenced() | static (string $open, string $close, Phactorial\Node\Node|string ...$content): Phactorial\Node\Fenced
+Phactorial\Math::frac() | static (Phactorial\Node\Node|string $numerator, Phactorial\Node\Node|string $denominator): Phactorial\Node\Fraction
+Phactorial\Math::hat() | static (Phactorial\Node\Node|string $base): Phactorial\Node\UnderOver
+Phactorial\Math::integral() | static (Phactorial\Node\Node|string|null $under = NULL, Phactorial\Node\Node|string|null $over = NULL): Phactorial\Node\Node
+Phactorial\Math::layout() | static (Phactorial\Node\Node $root, float $size = 12.0, bool $display = true, ?Phactorial\Font\Font $font = NULL, bool $scriptAlternates = true, ?Closure $fallbackAdvance = NULL): Phactorial\Layout\Box ; @param $size float ; @param $scriptAlternates bool ; @param $fallbackAdvance (\Closure(string, float): ?float)|null
+Phactorial\Math::mathml() | static (Dom\Element|string $input): Phactorial\Node\Node
+Phactorial\Math::matrix() | static (array $rows, string $fence = 'paren', array|string $align = 'center'): Phactorial\Node\Node ; @param $rows list<list<string|Node>> ; @param $fence string ; @param $align string|array<string>
+Phactorial\Math::middle() | static (string $delimiter): Phactorial\Node\Node
+Phactorial\Math::notes() | static (Phactorial\Node\Node $node): array ; @return list<MathNote>
+Phactorial\Math::over() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string $over): Phactorial\Node\UnderOver
+Phactorial\Math::overbrace() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string|null $label = NULL): Phactorial\Node\UnderOver
+Phactorial\Math::overline() | static (Phactorial\Node\Node|string $base): Phactorial\Node\UnderOver
+Phactorial\Math::phantom() | static (Phactorial\Node\Node|string ...$content): Phactorial\Node\Phantom
+Phactorial\Math::prescripts() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string|null $preSub, Phactorial\Node\Node|string|null $preSup, Phactorial\Node\Node|string|null $sub = NULL, Phactorial\Node\Node|string|null $sup = NULL): Phactorial\Node\Scripts
+Phactorial\Math::product() | static (Phactorial\Node\Node|string|null $under = NULL, Phactorial\Node\Node|string|null $over = NULL): Phactorial\Node\Node
+Phactorial\Math::root() | static (Phactorial\Node\Node|string $radicand, Phactorial\Node\Node|string $index): Phactorial\Node\Root
+Phactorial\Math::row() | static (Phactorial\Node\Node|string ...$items): Phactorial\Node\Node
+Phactorial\Math::space() | static (float $em): Phactorial\Node\Space
+Phactorial\Math::sqrt() | static (Phactorial\Node\Node|string ...$content): Phactorial\Node\Root
+Phactorial\Math::stack() | static (Phactorial\Node\Node|string $top, Phactorial\Node\Node|string $bottom): Phactorial\Node\Fraction
+Phactorial\Math::stixTwoMath() | static (): Phactorial\Font\Font
+Phactorial\Math::stixTwoMathPath() | static (): string
+Phactorial\Math::styled() | static (string $text, string $variant): Phactorial\Node\Node
+Phactorial\Math::sub() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string $subscript): Phactorial\Node\Scripts
+Phactorial\Math::subSup() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string $subscript, Phactorial\Node\Node|string $superscript): Phactorial\Node\Scripts
+Phactorial\Math::sum() | static (Phactorial\Node\Node|string|null $under = NULL, Phactorial\Node\Node|string|null $over = NULL): Phactorial\Node\Node
+Phactorial\Math::sup() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string $superscript): Phactorial\Node\Scripts
+Phactorial\Math::tex() | static (string $tex): Phactorial\Node\Node
+Phactorial\Math::text() | static (string $text): Phactorial\Node\Node
+Phactorial\Math::tilde() | static (Phactorial\Node\Node|string $base): Phactorial\Node\UnderOver
+Phactorial\Math::under() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string $under): Phactorial\Node\UnderOver
+Phactorial\Math::underOver() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string $under, Phactorial\Node\Node|string $over): Phactorial\Node\UnderOver
+Phactorial\Math::underbrace() | static (Phactorial\Node\Node|string $base, Phactorial\Node\Node|string|null $label = NULL): Phactorial\Node\UnderOver
+Phactorial\Math::underline() | static (Phactorial\Node\Node|string $base): Phactorial\Node\UnderOver
+Phactorial\Math::vec() | static (Phactorial\Node\Node|string $base): Phactorial\Node\UnderOver
+Phactorial\Math::xarrow() | static (string $arrow = '→', Phactorial\Node\Node|string|null $under = NULL, Phactorial\Node\Node|string|null $over = NULL): Phactorial\Node\UnderOver
+Phactorial\MathNote | final readonly class
+Phactorial\MathNote::$element | readonly protected(set) string
+Phactorial\MathNote::$level | readonly protected(set) Phactorial\NoteLevel
+Phactorial\MathNote::$reason | readonly protected(set) string
+Phactorial\MathNote::$where | readonly protected(set) string
+Phactorial\MathPng | final readonly class
+Phactorial\MathPng::$alt | readonly protected(set) string
+Phactorial\MathPng::$bytes | readonly protected(set) string
+Phactorial\MathPng::$height | readonly protected(set) float
+Phactorial\MathPng::$verticalAlign | readonly protected(set) ?float
+Phactorial\MathPng::$width | readonly protected(set) float
+Phactorial\MathPng::dataUri() | (): string
+Phactorial\MathPng::img() | (string $src, ?string $alt = NULL): string
+Phactorial\MathRender | final readonly class
+Phactorial\MathRender::display() | (): self
+Phactorial\MathRender::font() | (Phactorial\Font\Font $font): self
+Phactorial\MathRender::fromMathml() | static (Dom\Element|string $input): self
+Phactorial\MathRender::fromTex() | static (string $tex): self
+Phactorial\MathRender::inline() | (): self
+Phactorial\MathRender::isDisplay() | (): bool
+Phactorial\MathRender::mathml() | (): string
+Phactorial\MathRender::node() | (): Phactorial\Node\Node
+Phactorial\MathRender::notes() | (): array ; @return list<MathNote>
+Phactorial\MathRender::of() | static (Phactorial\Node\Node $node): self
+Phactorial\MathRender::omml() | (string $align = 'center', ?Phactorial\Render\RunFormat $format = NULL): string
+Phactorial\MathRender::png() | (float $size = 16.0, float $scale = 2.0, string $color = '#000000', float $pad = 0.0): Phactorial\MathPng
+Phactorial\MathRender::svg() | (float $size = 16.0, string $color = 'currentColor', float $pad = 0.0, ?string $label = NULL): string
+Phactorial\MathRender::tex() | (): string
+Phactorial\MathRender::text() | (): string
+Phactorial\Mathml\MathmlReader | final class
+Phactorial\Mathml\MathmlReader::MAX_ELEMENTS | const int = 32768
+Phactorial\Mathml\MathmlReader::MAX_INPUT | const int = 1048576
+Phactorial\Mathml\MathmlReader::MAX_TEXT | const int = 16384
+Phactorial\Mathml\MathmlReader::read() | static (Dom\Element|string $input): Phactorial\Mathml\MathmlResult
+Phactorial\Mathml\MathmlResult | final readonly class
+Phactorial\Mathml\MathmlResult::$display | readonly protected(set) bool
+Phactorial\Mathml\MathmlResult::$node | readonly protected(set) Phactorial\Node\Node
+Phactorial\Mathml\MathmlResult::notes() | (): array ; @return list<MathNote>
+Phactorial\Mathml\SafeXml | final class
+Phactorial\Mathml\SafeXml::decode() | static (string $text): string
+Phactorial\Mathml\SafeXml::find() | static (string $text): array ; @return list<array{int, int}>
+Phactorial\Node\DisplayStyle | final class extends Phactorial\Node\Node
+Phactorial\Node\DisplayStyle::$content | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\DisplayStyle::$display | readonly protected(set) bool
+Phactorial\Node\DisplayStyle::children() | (): array ; @return list<Node>
+Phactorial\Node\Fallback | final class extends Phactorial\Node\Node
+Phactorial\Node\Fallback::$content | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\Fallback::$note | readonly protected(set) Phactorial\MathNote
+Phactorial\Node\Fallback::children() | (): array ; @return list<Node>
+Phactorial\Node\Fenced | final class extends Phactorial\Node\Node
+Phactorial\Node\Fenced::$close | readonly protected(set) string
+Phactorial\Node\Fenced::$content | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Fenced::$open | readonly protected(set) string
+Phactorial\Node\Fenced::children() | (): array ; @return list<Node>
+Phactorial\Node\Fraction | final class extends Phactorial\Node\Node
+Phactorial\Node\Fraction::$bar | readonly protected(set) bool
+Phactorial\Node\Fraction::$denominator | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Fraction::$numerator | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Fraction::children() | (): array ; @return list<Node>
+Phactorial\Node\Grid | final class extends Phactorial\Node\Node
+Phactorial\Node\Grid::$alignment | readonly protected(set) bool
+Phactorial\Node\Grid::$columnAlign | readonly protected(set) array ; @var list<string>
+Phactorial\Node\Grid::$columnSpacing | readonly protected(set) array ; @var list<float>
+Phactorial\Node\Grid::$columns | readonly protected(set) int
+Phactorial\Node\Grid::$display | readonly protected(set) bool
+Phactorial\Node\Grid::$rowAlign | readonly protected(set) string
+Phactorial\Node\Grid::$rows | readonly protected(set) array ; @var list<list<Node>>
+Phactorial\Node\Grid::children() | (): array ; @return list<Node>
+Phactorial\Node\Identifier | final class extends Phactorial\Node\Node
+Phactorial\Node\Identifier::$function | readonly protected(set) bool
+Phactorial\Node\Identifier::$name | readonly protected(set) string
+Phactorial\Node\Identifier::$upright | readonly protected(set) bool
+Phactorial\Node\Middle | final class extends Phactorial\Node\Node
+Phactorial\Node\Middle::$char | readonly protected(set) string
+Phactorial\Node\Node | abstract class
+Phactorial\Node\Node::children() | (): array ; @return list<Node>
+Phactorial\Node\Number | final class extends Phactorial\Node\Node
+Phactorial\Node\Number::$text | readonly protected(set) string
+Phactorial\Node\Operator | final class extends Phactorial\Node\Node
+Phactorial\Node\Operator::$char | readonly protected(set) string
+Phactorial\Node\Operator::$form | readonly protected(set) ?string
+Phactorial\Node\Operator::$largeop | readonly protected(set) ?bool
+Phactorial\Node\Operator::$lspace | readonly protected(set) ?float
+Phactorial\Node\Operator::$maxSize | readonly protected(set) ?float
+Phactorial\Node\Operator::$minSize | readonly protected(set) ?float
+Phactorial\Node\Operator::$movablelimits | readonly protected(set) ?bool
+Phactorial\Node\Operator::$rspace | readonly protected(set) ?float
+Phactorial\Node\Operator::$stretchy | readonly protected(set) ?bool
+Phactorial\Node\Phantom | final class extends Phactorial\Node\Node
+Phactorial\Node\Phantom::$content | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Phantom::children() | (): array ; @return list<Node>
+Phactorial\Node\Root | final class extends Phactorial\Node\Node
+Phactorial\Node\Root::$index | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\Root::$radicand | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Root::children() | (): array ; @return list<Node>
+Phactorial\Node\Row | final class extends Phactorial\Node\Node
+Phactorial\Node\Row::$children | readonly protected(set) array ; @var list<Node>
+Phactorial\Node\Row::children() | (): array ; @return list<Node>
+Phactorial\Node\Scripts | final class extends Phactorial\Node\Node
+Phactorial\Node\Scripts::$base | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Scripts::$preSub | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\Scripts::$preSup | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\Scripts::$sub | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\Scripts::$sup | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\Scripts::children() | (): array ; @return list<Node>
+Phactorial\Node\Space | final class extends Phactorial\Node\Node
+Phactorial\Node\Space::$em | readonly protected(set) float
+Phactorial\Node\TexSource | final class extends Phactorial\Node\Node
+Phactorial\Node\TexSource::$content | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\TexSource::children() | (): array ; @return list<Node>
+Phactorial\Node\Text | final class extends Phactorial\Node\Node
+Phactorial\Node\Text::$text | readonly protected(set) string
+Phactorial\Node\UnderOver | final class extends Phactorial\Node\Node
+Phactorial\Node\UnderOver::$accent | readonly protected(set) bool
+Phactorial\Node\UnderOver::$accentUnder | readonly protected(set) bool
+Phactorial\Node\UnderOver::$base | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\UnderOver::$over | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\UnderOver::$under | readonly protected(set) ?Phactorial\Node\Node
+Phactorial\Node\UnderOver::children() | (): array ; @return list<Node>
+Phactorial\NoteLevel | enum implements UnitEnum
+Phactorial\NoteLevel::Approximated | case
+Phactorial\NoteLevel::Dropped | case
+Phactorial\Render\MathmlWriter | final class
+Phactorial\Render\MathmlWriter::write() | static (Phactorial\Node\Node $root, bool $display = true): string
+Phactorial\Render\OmmlWriter | final class
+Phactorial\Render\OmmlWriter::oMath() | static (Phactorial\Node\Node $root, ?Phactorial\Render\RunFormat $format = NULL): string
+Phactorial\Render\OmmlWriter::oMathPara() | static (Phactorial\Node\Node $root, string $align = 'center', ?Phactorial\Render\RunFormat $format = NULL): string
+Phactorial\Render\PngRenderer | final class
+Phactorial\Render\PngRenderer::MAX_PIXELS | const int = 8000000
+Phactorial\Render\PngRenderer::__construct() | (Phactorial\Font\Font $font, string $color = '#000000', float $opacity = 1.0)
+Phactorial\Render\PngRenderer::available() | static (): bool
+Phactorial\Render\PngRenderer::baselineOffset() | static (Phactorial\Layout\Box $box, float $pad = 0.0, float $scale = 2.0): float
+Phactorial\Render\PngRenderer::pixelSize() | static (Phactorial\Layout\Box $box, float $pad = 0.0, float $scale = 2.0): array ; @return array{int, int}
+Phactorial\Render\PngRenderer::render() | (Phactorial\Layout\Box $box, float $pad = 0.0, float $scale = 2.0): string
+Phactorial\Render\RunFormat | final readonly class
+Phactorial\Render\RunFormat::$colorHex | readonly protected(set) ?string
+Phactorial\Render\RunFormat::$shadingHex | readonly protected(set) ?string
+Phactorial\Render\RunFormat::$sizeHalfPoints | readonly protected(set) ?int
+Phactorial\Render\RunFormat::__construct() | (?string $colorHex = NULL, ?int $sizeHalfPoints = NULL, ?string $shadingHex = NULL)
+Phactorial\Render\SvgRenderer | final class
+Phactorial\Render\SvgRenderer::__construct() | (Phactorial\Font\Font $font, string $color = '#000000', float $opacity = 1.0)
+Phactorial\Render\SvgRenderer::baselineOffset() | static (Phactorial\Layout\Box $box, float $pad = 0.0): float
+Phactorial\Render\SvgRenderer::glyphPaths() | (array $glyphs, float $width, float $ascent, float $descent): string ; @param $glyphs list<Glyph>
+Phactorial\Render\SvgRenderer::render() | (Phactorial\Layout\Box $box, float $pad = 0.0): string
+Phactorial\Render\TexWriter | final class
+Phactorial\Render\TexWriter::write() | static (Phactorial\Node\Node $root): string
+Phactorial\Render\TextWriter | final class
+Phactorial\Render\TextWriter::write() | static (Phactorial\Node\Node $root): string
+Phactorial\Tex\TexReader | final class
+Phactorial\Tex\TexReader::MAX_CELLS | const int = 10000
+Phactorial\Tex\TexReader::MAX_DEPTH | const int = 256
+Phactorial\Tex\TexReader::MAX_EXPANSIONS | const int = 10000
+Phactorial\Tex\TexReader::MAX_EXPANSION_BYTES | const int = 16384
+Phactorial\Tex\TexReader::MAX_INPUT | const int = 16384
+Phactorial\Tex\TexReader::read() | static (string $tex): Phactorial\Tex\TexResult
+Phactorial\Tex\TexResult | final readonly class
+Phactorial\Tex\TexResult::$display | readonly protected(set) bool
+Phactorial\Tex\TexResult::$node | readonly protected(set) Phactorial\Node\Node
+Phactorial\Tex\TexResult::notes() | (): array ; @return list<MathNote>

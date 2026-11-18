@@ -4,22 +4,75 @@ declare(strict_types=1);
 
 namespace Phactorial\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Phactorial\Layout\Context;
 use Phactorial\Layout\Glyph;
 use Phactorial\Layout\Rule;
 use Phactorial\Math;
+use Phactorial\Mathml\SafeXml;
 use Phactorial\Node\Fraction;
 use Phactorial\Node\Identifier;
 use Phactorial\Node\Number;
 use Phactorial\Node\Operator;
 use Phactorial\Node\Row;
+use Phactorial\Node\Scripts;
+use Phactorial\Render\OmmlWriter;
 use Phactorial\Render\SvgRenderer;
 use Phactorial\Styles;
 use Phactorial\Tokenizer;
 
 final class MathTest extends TestCase
 {
+    public function test_builders_take_the_documented_parameter_names(): void
+    {
+        self::assertInstanceOf(Fraction::class, Math::frac(numerator: 'a', denominator: 'b'));
+        self::assertInstanceOf(Scripts::class, Math::sup(base: 'x', superscript: '2'));
+        self::assertInstanceOf(Scripts::class, Math::sub(base: 'x', subscript: 'i'));
+        self::assertInstanceOf(Scripts::class, Math::subSup(base: 'x', subscript: 'i', superscript: '2'));
+        self::assertInstanceOf(Operator::class, Math::bigOp(operator: '∑'));
+        self::assertInstanceOf(Operator::class, Math::big(delimiter: '(', step: 2));
+        self::assertSame([], Math::notes(node: Math::row('x')));
+    }
+
+    public function test_xarrow_takes_under_before_over(): void
+    {
+        $n = Math::xarrow('→', 'u', 'o');
+        self::assertInstanceOf(Identifier::class, $n->under);
+        self::assertInstanceOf(Identifier::class, $n->over);
+        self::assertSame('u', $n->under->name);
+        self::assertSame('o', $n->over->name);
+    }
+
+    /**
+     * @param callable $target
+     * @param array<string, mixed> $args
+     */
+    #[DataProvider('oldNameCalls')]
+    public function test_old_parameter_names_are_gone(callable $target, array $args): void
+    {
+        $this->expectException(\Error::class);
+        $this->expectExceptionMessageMatches('/Unknown named parameter/');
+        $target(...$args);
+    }
+
+    /** @return iterable<string, array{callable, array<string, mixed>}> */
+    public static function oldNameCalls(): iterable
+    {
+        $node = Math::row('x');
+        yield 'frac num' => [Math::frac(...), ['num' => 'a', 'den' => 'b']];
+        yield 'sup sup' => [Math::sup(...), ['base' => 'x', 'sup' => '2']];
+        yield 'sub sub' => [Math::sub(...), ['base' => 'x', 'sub' => 'i']];
+        yield 'subSup sub and sup' => [Math::subSup(...), ['base' => 'x', 'sub' => 'i', 'sup' => '2']];
+        yield 'bigOp op' => [Math::bigOp(...), ['op' => '∑']];
+        yield 'big size' => [Math::big(...), ['delimiter' => '(', 'size' => 2]];
+        yield 'notes root' => [Math::notes(...), ['root' => $node]];
+        yield 'Font gid cp' => [Math::stixTwoMath()->gid(...), ['cp' => 65]];
+        yield 'Box each fn' => [Math::layout($node, 12)->each(...), ['fn' => static function (): void {}]];
+        yield 'SafeXml decode s' => [SafeXml::decode(...), ['s' => 'x']];
+        yield 'oMathPara jc' => [OmmlWriter::oMathPara(...), ['root' => $node, 'jc' => 'left']];
+    }
+
     public function test_math_constants_of_stix_two_math(): void
     {
         $m = Math::stixTwoMath()->math();

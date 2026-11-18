@@ -14,7 +14,11 @@ final class Text extends Node
 {
     public readonly string $text;
 
-    /** Invalid UTF-8 in $text is replaced silently here; the Math builders also record a note. */
+    /**
+     * Invalid UTF-8 in $text is replaced silently here; the Math builders also record a note.
+     *
+     * @internal Engine detail, not public API.
+     */
     public function __construct(string $text)
     {
         $this->text = Utf8::clean($text);

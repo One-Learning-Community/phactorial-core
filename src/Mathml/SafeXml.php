@@ -12,9 +12,13 @@ final class SafeXml
 {
     private const MAP = ['«' => '<', '»' => '>', '¨' => '"', '§' => '&', '`' => "'"];
 
-    public static function decode(string $s): string
+    private function __construct()
     {
-        return strtr($s, self::MAP);
+    }
+
+    public static function decode(string $text): string
+    {
+        return strtr($text, self::MAP);
     }
 
     /**

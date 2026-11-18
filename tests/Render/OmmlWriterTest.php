@@ -96,9 +96,10 @@ final class OmmlWriterTest extends TestCase
         yield 'right' => ['right'];
     }
 
-    public function test_para_default_is_left(): void
+    public function test_paragraph_is_centered_by_default(): void
     {
-        self::assertStringContainsString('<m:jc m:val="left"/>', OmmlWriter::oMathPara(Math::row('x')));
+        self::assertStringContainsString('<m:jc m:val="center"/>', OmmlWriter::oMathPara(Math::row('x')));
+        self::assertStringContainsString('m:val="left"', OmmlWriter::oMathPara(Math::row('x'), align: 'left'));
     }
 
     public function test_escapes_xml_specials(): void
@@ -403,22 +404,22 @@ final class OmmlWriterTest extends TestCase
         $pad = self::mr("\u{2002}");
         $arrow = '<m:groupChr><m:groupChrPr><m:chr m:val="→"/><m:pos m:val="top"/><m:vertJc m:val="bot"/></m:groupChrPr><m:e>';
 
-        $over = self::oMath(Math::xarrow('→', 'f'));
+        $over = self::oMath(Math::xarrow('→', null, 'f'));
         self::assertSame('<m:oMath><m:limUpp><m:e>' . $arrow . $ph . $pad . self::mr('f') . $pad . '</m:e></m:phant></m:e></m:groupChr></m:e><m:lim>' . self::mr('f') . '</m:lim></m:limUpp></m:oMath>', $over);
 
-        $under = self::oMath(Math::xarrow('→', null, 'g'));
+        $under = self::oMath(Math::xarrow('→', 'g'));
         self::assertSame('<m:oMath><m:limLow><m:e>' . $arrow . $ph . $pad . self::mr('g') . $pad . '</m:e></m:phant></m:e></m:groupChr></m:e><m:lim>' . self::mr('g') . '</m:lim></m:limLow></m:oMath>', $under);
 
         // Both labels: the phantom copies the wider one; the real labels are the limits.
-        $both = self::oMath(Math::xarrow('→', 'f', 'n=0'));
-        self::assertSame('<m:oMath><m:limLow><m:e><m:limUpp><m:e>' . $arrow . $ph . $pad . self::mr('n') . self::mr('=') . self::mr('0') . $pad . '</m:e></m:phant></m:e></m:groupChr></m:e><m:lim>' . self::mr('f') . '</m:lim></m:limUpp></m:e><m:lim>' . self::mr('n') . self::mr('=') . self::mr('0') . '</m:lim></m:limLow></m:oMath>', $both);
         $both = self::oMath(Math::xarrow('→', 'n=0', 'f'));
+        self::assertSame('<m:oMath><m:limLow><m:e><m:limUpp><m:e>' . $arrow . $ph . $pad . self::mr('n') . self::mr('=') . self::mr('0') . $pad . '</m:e></m:phant></m:e></m:groupChr></m:e><m:lim>' . self::mr('f') . '</m:lim></m:limUpp></m:e><m:lim>' . self::mr('n') . self::mr('=') . self::mr('0') . '</m:lim></m:limLow></m:oMath>', $both);
+        $both = self::oMath(Math::xarrow('→', 'f', 'n=0'));
         self::assertSame('<m:oMath><m:limLow><m:e><m:limUpp><m:e>' . $arrow . $ph . $pad . self::mr('n') . self::mr('=') . self::mr('0') . $pad . '</m:e></m:phant></m:e></m:groupChr></m:e><m:lim>' . self::mr('n') . self::mr('=') . self::mr('0') . '</m:lim></m:limUpp></m:e><m:lim>' . self::mr('f') . '</m:lim></m:limLow></m:oMath>', $both);
     }
 
     public function test_xlongequal_label_is_a_group_character(): void
     {
-        $xml = self::oMath(Math::xarrow('=', 'a'));
+        $xml = self::oMath(Math::xarrow('=', null, 'a'));
         self::assertStringContainsString('<m:groupChr><m:groupChrPr><m:chr m:val="="/>', $xml);
         self::assertStringContainsString('<m:phant>', $xml);
     }
@@ -441,7 +442,7 @@ final class OmmlWriterTest extends TestCase
     public function test_label_width_ignores_xml_escapes(): void
     {
         // "&lt;&lt;" is two characters, shorter than "abc": the arrow groups the under label.
-        $xml = OmmlWriter::oMath(Math::xarrow('→', '<<', 'abc'));
+        $xml = OmmlWriter::oMath(Math::xarrow('→', 'abc', '<<'));
         self::assertMatchesRegularExpression('#<m:limUpp><m:e><m:groupChr>.*<m:phant>.*>a<.*>b<.*>c<.*</m:phant>#s', $xml);
     }
 

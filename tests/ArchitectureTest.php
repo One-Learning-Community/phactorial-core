@@ -37,4 +37,22 @@ final class ArchitectureTest extends TestCase
         sort($expected);
         self::assertSame($expected, $internal);
     }
+
+    /** @return iterable<string, array{class-string}> */
+    public static function staticFacades(): iterable
+    {
+        foreach ([\Phactorial\Math::class, \Phactorial\Tex\TexReader::class, \Phactorial\Mathml\MathmlReader::class, \Phactorial\Mathml\SafeXml::class,
+            \Phactorial\Render\MathmlWriter::class, \Phactorial\Render\TexWriter::class, \Phactorial\Render\TextWriter::class, \Phactorial\Render\OmmlWriter::class] as $class) {
+            yield $class => [$class];
+        }
+    }
+
+    /** @param class-string $class */
+    #[\PHPUnit\Framework\Attributes\DataProvider('staticFacades')]
+    public function test_static_facades_cannot_be_constructed(string $class): void
+    {
+        $ctor = (new \ReflectionClass($class))->getConstructor();
+        self::assertNotNull($ctor, "$class has no constructor");
+        self::assertTrue($ctor->isPrivate(), "$class constructor is not private");
+    }
 }

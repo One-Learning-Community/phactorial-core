@@ -11,15 +11,19 @@ use Phactorial\OperatorDictionary;
 /** mrow: children side by side on a shared baseline. Operator forms come from Forms::of(). */
 final class Row extends Node
 {
-    /** @param list<Node> $children */
-    public function __construct(public readonly array $children)
-    {
+    /**
+     * @param list<Node> $children
+     *
+     * @internal Engine detail, not public API.
+     */
+    public function __construct(
+        /** @var list<Node> */
+        public readonly array $children,
+    ) {
     }
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

@@ -11,6 +11,7 @@ use Phactorial\Node\Node;
 /** A formula read from TeX: the tree, and whether the source asked for display (block) style. */
 final readonly class TexResult
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public Node $node, public bool $display)
     {
     }

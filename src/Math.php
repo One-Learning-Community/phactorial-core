@@ -36,6 +36,10 @@ final class Math
     /** The bundled STIX Two Math, opened once per process. */
     private static ?Font $stix = null;
 
+    private function __construct()
+    {
+    }
+
     /** Path of the bundled STIX Two Math font (SIL OFL 1.1, see resources/fonts/OFL.txt). */
     public static function stixTwoMathPath(): string
     {
@@ -51,12 +55,12 @@ final class Math
     public const BIG_SIZES = [1.2, 1.8, 2.4, 3.0];
 
     /** A delimiter drawn at a fixed size, 1 (big) to 4 (Bigg), centered on the math axis. */
-    public static function big(string $delimiter, int $size): Operator
+    public static function big(string $delimiter, int $step): Operator
     {
-        if ($size < 1 || $size > 4) {
-            throw new \InvalidArgumentException('Delimiter size must be 1 to 4, got ' . $size);
+        if ($step < 1 || $step > 4) {
+            throw new \InvalidArgumentException('Delimiter size must be 1 to 4, got ' . $step);
         }
-        $em = self::BIG_SIZES[$size - 1];
+        $em = self::BIG_SIZES[$step - 1];
 
         return new Operator($delimiter, minSize: $em, maxSize: $em);
     }
@@ -88,9 +92,9 @@ final class Math
         return $bad ? new Fallback($node, new MathNote(NoteLevel::Approximated, 'text', Utf8::NOTE)) : $node;
     }
 
-    public static function frac(string|Node $num, string|Node $den): Fraction
+    public static function frac(string|Node $numerator, string|Node $denominator): Fraction
     {
-        return new Fraction(self::row($num), self::row($den));
+        return new Fraction(self::row($numerator), self::row($denominator));
     }
 
     /** A fraction without a rule (MathML linethickness="0"). */
@@ -162,19 +166,19 @@ final class Math
         return new Root(self::row($radicand), self::row($index));
     }
 
-    public static function sup(string|Node $base, string|Node $sup): Scripts
+    public static function sup(string|Node $base, string|Node $superscript): Scripts
     {
-        return new Scripts(self::row($base), null, self::row($sup));
+        return new Scripts(self::row($base), null, self::row($superscript));
     }
 
-    public static function sub(string|Node $base, string|Node $sub): Scripts
+    public static function sub(string|Node $base, string|Node $subscript): Scripts
     {
-        return new Scripts(self::row($base), self::row($sub), null);
+        return new Scripts(self::row($base), self::row($subscript), null);
     }
 
-    public static function subSup(string|Node $base, string|Node $sub, string|Node $sup): Scripts
+    public static function subSup(string|Node $base, string|Node $subscript, string|Node $superscript): Scripts
     {
-        return new Scripts(self::row($base), self::row($sub), self::row($sup));
+        return new Scripts(self::row($base), self::row($subscript), self::row($superscript));
     }
 
     /** A base with scripts on its left and, optionally, on its right (mmultiscripts): `{}^{14}_{6}\mathrm{C}`. */
@@ -206,10 +210,10 @@ final class Math
      * A large operator with limits above and below it in display style (beside it as scripts in inline style when its
      * limits are movable). Without limits it is the operator alone.
      */
-    public static function bigOp(string $op, string|Node|null $under = null, string|Node|null $over = null): Node
+    public static function bigOp(string $operator, string|Node|null $under = null, string|Node|null $over = null): Node
     {
         $bad = false;
-        $o = new Operator(self::scrub($op, $bad));
+        $o = new Operator(self::scrub($operator, $bad));
         if ($under === null && $over === null) {
             return self::flagged($o, $bad);
         }
@@ -287,10 +291,10 @@ final class Math
         return $label === null ? $braced : new UnderOver($braced, null, self::row($label));
     }
 
-    /** An extensible arrow with optional labels above and below (TeX's \xrightarrow): it reaches past its labels and has a minimum length.
+    /** An extensible arrow with optional labels below and above (TeX's \xrightarrow): it reaches past its labels and has a minimum length.
      * An arrow the font has no horizontal construction for (such as ⟶ or ⥂ in STIX Two Math) is drawn at its natural width, with no pad or minimum.
      * A stretchy = (\xlongequal) has none either, so it is drawn as two rules. */
-    public static function xarrow(string $arrow = '→', string|Node|null $over = null, string|Node|null $under = null): UnderOver
+    public static function xarrow(string $arrow = '→', string|Node|null $under = null, string|Node|null $over = null): UnderOver
     {
         return new UnderOver(
             new Operator($arrow, stretchy: UnderOver::isStretchy(new Operator($arrow)) ? null : true), // set only where the dictionary does not already stretch it (=)
@@ -362,8 +366,10 @@ final class Math
      * The leading operator of each left-hand cell keeps infix spacing, so `= 3` is spaced as a relation.
      *
      * @param list<list<string|Node>> $rows
-     * @param float $pairGap em between pairs of columns; 0 for TeX's alignat, which leaves the spacing to the author.
-     *                       TeX output keeps only 0 (written as alignedat) and the default 2 em; other gaps read back as 2.
+     * @param float $pairGap Space in em between one pair of columns (right-aligned, then left-aligned) and the
+     *                       next pair. The two columns inside a pair never get a gap. 0 matches TeX's alignat, which leaves
+     *                       the spacing to the author. The TeX writer keeps only 0 (written as alignedat) and the default
+     *                       2 em; any other gap reads back as 2.
      *
      * @throws \InvalidArgumentException for no cells
      */
@@ -487,13 +493,13 @@ final class Math
      *
      * @return list<MathNote>
      */
-    public static function notes(Node $root): array
+    public static function notes(Node $node): array
     {
         $notes = [];
-        if ($root instanceof Fallback) {
-            $notes[] = $root->note;
+        if ($node instanceof Fallback) {
+            $notes[] = $node->note;
         }
-        foreach ($root->children() as $child) {
+        foreach ($node->children() as $child) {
             array_push($notes, ...self::notes($child));
         }
 

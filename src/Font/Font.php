@@ -17,8 +17,8 @@ final class Font
     /** @var array<string, array{int, int}> tag => [offset, length] */
     private array $tables = [];
 
-    public int $unitsPerEm;
-    public int $numGlyphs;
+    public readonly int $unitsPerEm;
+    public readonly int $numGlyphs;
     private int $locaFormat;
     private int $numHMetrics;
 
@@ -212,9 +212,9 @@ final class Font
     }
 
     /** Glyph id for a codepoint, or 0 when the font has none. */
-    public function gid(int $cp): int
+    public function gid(int $codePoint): int
     {
-        return $this->gidCache[$cp] ??= $this->lookupGid($cp);
+        return $this->gidCache[$codePoint] ??= $this->lookupGid($codePoint);
     }
 
     private function lookupGid(int $cp): int

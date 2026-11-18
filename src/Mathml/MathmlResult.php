@@ -11,6 +11,7 @@ use Phactorial\Node\Node;
 /** A formula read from MathML: the tree, and whether the source asked for display (block) style. */
 final readonly class MathmlResult
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public Node $node, public bool $display)
     {
     }

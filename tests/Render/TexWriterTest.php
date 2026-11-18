@@ -183,11 +183,11 @@ final class TexWriterTest extends TestCase
         self::assertSame('\overset{a}{x}', self::tex(Math::over('x', 'a')));
         self::assertSame('\underset{a}{x}', self::tex(Math::under('x', 'a')));
         self::assertSame('\underset{b}{\overset{a}{x}}', self::tex(Math::underOver('x', 'b', 'a')));
-        self::assertSame('\xrightarrow{f}', self::tex(Math::xarrow('→', 'f')));
-        self::assertSame('\xrightarrow[g]{f}', self::tex(Math::xarrow('→', 'f', 'g')));
-        self::assertSame('\xleftrightarrow[g]{}', self::tex(Math::xarrow('↔', null, 'g')));
-        self::assertSame('\xRightarrow{f}', self::tex(Math::xarrow('⇒', 'f')));
-        self::assertSame('\xlongequal{\text{def}}', self::tex(Math::xarrow('=', Math::text('def'))));
+        self::assertSame('\xrightarrow{f}', self::tex(Math::xarrow('→', null, 'f')));
+        self::assertSame('\xrightarrow[g]{f}', self::tex(Math::xarrow('→', 'g', 'f')));
+        self::assertSame('\xleftrightarrow[g]{}', self::tex(Math::xarrow('↔', 'g')));
+        self::assertSame('\xRightarrow{f}', self::tex(Math::xarrow('⇒', null, 'f')));
+        self::assertSame('\xlongequal{\text{def}}', self::tex(Math::xarrow('=', null, Math::text('def'))));
         self::assertSame('\overset{a}{\to}', self::tex(new UnderOver(new Operator('→', stretchy: false), null, Math::row('a'))));
     }
 

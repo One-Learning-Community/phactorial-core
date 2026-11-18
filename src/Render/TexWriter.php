@@ -52,6 +52,10 @@ final class TexWriter
     /** @var array<int, true> ids of the TexSource nodes that may be written as an equation number: those at the top of the formula */
     private static array $topLevel = [];
 
+    private function __construct()
+    {
+    }
+
     public static function write(Node $root): string
     {
         $saved = self::$topLevel;
@@ -113,7 +117,7 @@ final class TexWriter
             $n instanceof Fenced => self::fenced($n),
             $n instanceof Grid => self::gridBody($n, true),
             $n instanceof DisplayStyle => '{' . ($n->display ? '\displaystyle ' : '\textstyle ') . self::w($n->content, false) . '}',
-            default => '',
+            default => throw new \InvalidArgumentException('Unknown node ' . $n::class),
         };
     }
 

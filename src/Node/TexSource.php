@@ -17,14 +17,18 @@ use Phactorial\Layout\Context;
  */
 final class TexSource extends Node
 {
-    public function __construct(public readonly Node $content, public readonly string $tex, public readonly ?string $close = null)
-    {
+    /** @internal Engine detail, not public API. */
+    public function __construct(
+        public readonly Node $content,
+        /** @internal Engine detail, not public API. */
+        public readonly string $tex,
+        /** @internal Engine detail, not public API. */
+        public readonly ?string $close = null,
+    ) {
     }
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

@@ -62,13 +62,18 @@ final class BoxTest extends TestCase
         ], $seen);
     }
 
-    public function test_items_can_be_assigned(): void
+    public function test_items_cannot_be_replaced(): void
     {
-        $b = new Box();
-        $b->items = [new Rule(1.0, 2.0, 3.0, 4.0)];
-        $b->add(new Rule(0.0, 0.0, 1.0, 1.0));
+        $box = Math::layout(Math::frac('a', 'b'));
+        $before = count($box->items);
 
-        self::assertCount(2, $b->items);
+        try {
+            $property = 'items';
+            $box->$property = []; // @phpstan-ignore assign.propertyReadOnly
+            self::fail('Assigning items must throw.');
+        } catch (\Error) {
+            self::assertCount($before, $box->items);
+        }
     }
 
     public function test_a_deep_chain_copies_nothing_until_it_is_read(): void

@@ -28,6 +28,10 @@ use Phactorial\Styles;
 /** Serializes a formula tree as MathML Core, for the HTML export and for standalone use. */
 final class MathmlWriter
 {
+    private function __construct()
+    {
+    }
+
     public static function write(Node $root, bool $display = true): string
     {
         return '<math xmlns="http://www.w3.org/1998/Math/MathML" display="' . ($display ? 'block' : 'inline') . '">'

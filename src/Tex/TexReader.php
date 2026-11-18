@@ -1210,7 +1210,7 @@ final class TexReader
             $over = $this->parseArgument();
             $over = self::emptyToNull($over);
             $under = self::emptyToNull($under);
-            $node = $over === null && $under === null ? new Operator($arrow) : Math::xarrow($arrow, $over, $under);
+            $node = $over === null && $under === null ? new Operator($arrow) : Math::xarrow($arrow, $under, $over);
 
             return [$missing ? $this->note(NoteLevel::Approximated, '\\' . $name, 'missing argument', $at, $node) : $node, 'ord', null];
         }

@@ -7,14 +7,17 @@ namespace Phactorial\Node;
 use Phactorial\Layout\Box;
 use Phactorial\Layout\Context;
 
+/**
+ * A node of the formula tree.
+ *
+ * Sealed: the library's own types only. Extending or implementing it is unsupported, and a minor release may add a type.
+ */
 abstract class Node
 {
     /**
-     * The child nodes in reading order.
+     * Every child node, in reading order. A node without children returns an empty list.
      *
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

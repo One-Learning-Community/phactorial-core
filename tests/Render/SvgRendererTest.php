@@ -17,7 +17,7 @@ final class SvgRendererTest extends TestCase
         $font = Math::stixTwoMath();
         $box = new Box(20.0, 10.0, 4.0);
         $glyphs = [new Glyph($font->gid(0x78), 'x', 0.0, 0.0, 12.0), new Glyph($font->gid(0x79), null, 8.0, 0.0, 12.0)];
-        $svg = (new SvgRenderer($font))->glyphPaths($glyphs, $box);
+        $svg = (new SvgRenderer($font))->glyphPaths($glyphs, 20.0, 10.0, 4.0);
 
         $doc = new \DOMDocument();
         self::assertTrue($doc->loadXML($svg));
@@ -35,7 +35,7 @@ final class SvgRendererTest extends TestCase
     {
         $font = Math::stixTwoMath();
         $svg = static function (Glyph $g) use ($font): string {
-            return (new SvgRenderer($font))->glyphPaths([$g], new Box(20.0, 10.0, 4.0));
+            return (new SvgRenderer($font))->glyphPaths([$g], 20.0, 10.0, 4.0);
         };
         $extent = static function (string $s, int $axis): float {
             $v = array_map(static fn (array $p): float => $p[$axis], self::points($s));
@@ -69,8 +69,8 @@ final class SvgRendererTest extends TestCase
         $font = Math::stixTwoMath();
         $box = new Box(20.0, 10.0, 4.0);
         $glyphs = [new Glyph($font->gid(0x78), 'x', 0.0, 0.0, 12.0)];
-        self::assertStringContainsString('fill="#ff0000" fill-opacity="0.5"', (new SvgRenderer($font, '#ff0000', 0.5))->glyphPaths($glyphs, $box));
-        self::assertStringNotContainsString('fill-opacity', (new SvgRenderer($font, '#ff0000'))->glyphPaths($glyphs, $box));
+        self::assertStringContainsString('fill="#ff0000" fill-opacity="0.5"', (new SvgRenderer($font, '#ff0000', 0.5))->glyphPaths($glyphs, 20.0, 10.0, 4.0));
+        self::assertStringNotContainsString('fill-opacity', (new SvgRenderer($font, '#ff0000'))->glyphPaths($glyphs, 20.0, 10.0, 4.0));
     }
 
     public function test_color_is_escaped(): void
@@ -127,11 +127,11 @@ final class SvgRendererTest extends TestCase
         $font = Math::stixTwoMath();
         $gid = $font->gid(0x78);
         $glyphs = [new Glyph($gid, 'x', 0.0, 0.0, 12.0), new Glyph($gid, 'x', 10.0, -2.0, 6.0)];
-        $paths = self::pathData((new SvgRenderer($font))->glyphPaths($glyphs, new Box(20.0, 10.0, 4.0)));
+        $paths = self::pathData((new SvgRenderer($font))->glyphPaths($glyphs, 20.0, 10.0, 4.0));
 
         self::assertSame(['matrix(0.012 0 0 -0.012 0 0) ' . $font->outlinePath($gid), 'matrix(0.006 0 0 -0.006 10 -2) ' . $font->outlinePath($gid)], $paths);
         // The outline is in font units, y up: the x sits on the baseline, so its points reach up to about 0.45 em.
-        $ys = array_map(static fn (array $p): float => $p[1], self::points((new SvgRenderer($font))->glyphPaths([$glyphs[0]], new Box(20.0, 10.0, 4.0))));
+        $ys = array_map(static fn (array $p): float => $p[1], self::points((new SvgRenderer($font))->glyphPaths([$glyphs[0]], 20.0, 10.0, 4.0)));
         if ($ys === []) {
             self::fail('no points');
         }
@@ -144,7 +144,7 @@ final class SvgRendererTest extends TestCase
         $font = Math::stixTwoMath();
         $space = $font->gid(0x20);
         self::assertSame('', $font->outlinePath($space));
-        self::assertSame([], self::pathData((new SvgRenderer($font))->glyphPaths([new Glyph($space, ' ', 0.0, 0.0, 12.0)], new Box(20.0, 10.0, 4.0))));
+        self::assertSame([], self::pathData((new SvgRenderer($font))->glyphPaths([new Glyph($space, ' ', 0.0, 0.0, 12.0)], 20.0, 10.0, 4.0)));
     }
 
     public function test_glyph_paths_match_render_shifted_by_the_ascent(): void
@@ -158,7 +158,15 @@ final class SvgRendererTest extends TestCase
         // render() puts the baseline at y = ascent; glyphPaths() keeps it at y = 0 under a viewBox that starts at -ascent.
         $shifted = array_map(static fn (Glyph $g): Glyph => new Glyph($g->gid, $g->text, $g->x, $g->y + $box->ascent, $g->size), $glyphs);
 
-        self::assertSame(self::pathData($renderer->render($box, 0.0)), self::pathData($renderer->glyphPaths($shifted, $box)));
-        self::assertCount(count($glyphs), self::pathData($renderer->glyphPaths($glyphs, $box)));
+        self::assertSame(self::pathData($renderer->render($box, 0.0)), self::pathData($renderer->glyphPaths($shifted, $box->width, $box->ascent, $box->descent)));
+        self::assertCount(count($glyphs), self::pathData($renderer->glyphPaths($glyphs, $box->width, $box->ascent, $box->descent)));
+    }
+
+    public function test_glyph_paths_view_box_puts_the_baseline_at_zero(): void
+    {
+        $svg = (new SvgRenderer(Math::stixTwoMath()))->glyphPaths([], 20.0, 10.0, 4.0);
+
+        self::assertStringContainsString('viewBox="0 -10 20 14"', $svg);
+        self::assertStringContainsString('overflow="visible"', $svg);
     }
 }

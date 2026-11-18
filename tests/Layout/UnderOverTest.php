@@ -304,7 +304,7 @@ final class UnderOverTest extends TestCase
     #[DataProvider('minimumWidthArrows')]
     public function test_xarrow_has_minimum_width(string $arrow): void
     {
-        [$l, $r] = self::arrowSpan(Math::layout(Math::xarrow($arrow, 'f'), self::SIZE));
+        [$l, $r] = self::arrowSpan(Math::layout(Math::xarrow($arrow, null, 'f'), self::SIZE));
         self::assertGreaterThanOrEqual(UnderOver::ARROW_MIN_WIDTH, $r - $l);
     }
 
@@ -316,7 +316,7 @@ final class UnderOverTest extends TestCase
 
     public function test_xarrow_extends_past_label(): void
     {
-        $box = Math::layout(Math::xarrow('→', 'n → ∞'), self::SIZE);
+        $box = Math::layout(Math::xarrow('→', null, 'n → ∞'), self::SIZE);
         [$al, $ar] = self::arrowSpan($box);
         [$ll, $lr] = self::labelSpan($box);
         $pad = UnderOver::ARROW_LABEL_PAD;
@@ -326,7 +326,7 @@ final class UnderOverTest extends TestCase
 
     public function test_xlongequal_stretches_past_its_label(): void
     {
-        $box = Math::layout(Math::xarrow('=', 'a long label'), self::SIZE);
+        $box = Math::layout(Math::xarrow('=', null, 'a long label'), self::SIZE);
         [$ll, $lr] = self::labelSpan($box);
         $rules = [];
         $box->each(static function ($i, float $dx) use (&$rules): void {

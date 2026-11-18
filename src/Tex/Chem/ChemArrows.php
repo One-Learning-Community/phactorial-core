@@ -46,13 +46,13 @@ final class ChemArrows
         return null;
     }
 
-    /** The arrow as a relation: a stretchy arrow with the labels over and under it. */
-    public static function node(string $arrow, ?Node $over, ?Node $under): Node
+    /** The arrow as a relation: a stretchy arrow with the labels under and over it. */
+    public static function node(string $arrow, ?Node $under, ?Node $over): Node
     {
         $char = self::isUnequal($arrow) ? '⇌' : $arrow;
 
         // With no label, an empty one above keeps the arrow stretchy and at the minimum length (UnderOver needs a part).
-        return Math::xarrow($char, $over ?? ($under === null ? new Row([]) : null), $under);
+        return Math::xarrow($char, $under, $over ?? ($under === null ? new Row([]) : null));
     }
 
     /**

@@ -10,14 +10,13 @@ use Phactorial\Layout\Context;
 /** mstyle displaystyle: lays its content out in display or inline (text) style whatever the surrounding style is. */
 final class DisplayStyle extends Node
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public readonly Node $content, public readonly bool $display)
     {
     }
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

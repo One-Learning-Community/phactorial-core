@@ -10,14 +10,13 @@ use Phactorial\Layout\Context;
 /** mphantom: takes the content's width, height and depth and draws nothing. */
 final class Phantom extends Node
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public readonly Node $content)
     {
     }
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

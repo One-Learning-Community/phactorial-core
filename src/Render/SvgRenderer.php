@@ -50,20 +50,21 @@ final class SvgRenderer
 
     /**
      * A standalone SVG holding only $glyphs, one <path> each, for glyphs a backend cannot draw as text
-     * (stretched variants, assembly pieces). The glyphs are in the coordinate space of $box: points, baseline at y = 0,
-     * y down. The viewBox is that box, "0 -ascent width ascent+descent", and width/height are the box size in pt,
-     * so placing the SVG with its top-left at the box's top-left reproduces the glyph positions exactly.
-     * The root has overflow="visible", so ink outside the box metrics (a deep radical, a tall accent) is not clipped.
+     * (stretched variants, assembly pieces). The glyphs are in points, baseline at y = 0, y down. $width, $ascent and
+     * $descent are the extent of the box they sit in, in points: the viewBox is "0 -ascent width ascent+descent" and
+     * width/height are that size in pt, so placing the SVG with its top-left at the box's top-left reproduces the
+     * glyph positions exactly. The root has overflow="visible", so ink outside those metrics (a deep radical,
+     * a tall accent) is not clipped.
      *
      * @param list<Glyph> $glyphs
      */
-    public function glyphPaths(array $glyphs, Box $box): string
+    public function glyphPaths(array $glyphs, float $width, float $ascent, float $descent): string
     {
-        $w = Xml::number($box->width);
-        $h = Xml::number($box->ascent + $box->descent);
+        $w = Xml::number($width);
+        $h = Xml::number($ascent + $descent);
         $svg = sprintf(
             '<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 %s %s %s" overflow="visible">',
-            $w, $h, Xml::number(-$box->ascent), $w, $h,
+            $w, $h, Xml::number(-$ascent), $w, $h,
         );
         $svg .= $this->group();
         foreach ($glyphs as $g) {

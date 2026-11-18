@@ -22,6 +22,8 @@ final class Middle extends Node
      * Invalid UTF-8 in $char is replaced silently here; the Math builders also record a note.
      *
      * @param ?float $height total height in pt to stretch to; set by Fenced only, null draws the plain glyph
+     *
+     * @internal Engine detail, not public API.
      */
     public function __construct(string $char, private readonly ?float $height = null)
     {

@@ -32,6 +32,20 @@ final class FontTest extends TestCase
         }
     }
 
+    public function test_metrics_are_read_only(): void
+    {
+        $font = Math::stixTwoMath();
+        $units = $font->unitsPerEm;
+
+        try {
+            $property = 'unitsPerEm';
+            $font->$property = 1; // @phpstan-ignore assign.propertyProtectedSet
+            self::fail('Assigning unitsPerEm must throw.');
+        } catch (\Error) {
+            self::assertSame($units, $font->unitsPerEm);
+        }
+    }
+
     public function test_rejects_font_collection(): void
     {
         $path = tempnam(sys_get_temp_dir(), 'ttc') ?: self::fail('no temp file');

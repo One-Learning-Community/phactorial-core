@@ -15,6 +15,8 @@ final readonly class MathPng
     /**
      * @param ?float $verticalAlign CSS vertical-align in pixels, negative below the baseline; null for a display formula, which sits on its own line
      * @param string $alt the formula as text, the default alt of {@see img()}
+     *
+     * @internal Engine detail, not public API.
      */
     public function __construct(
         public string $bytes,

@@ -16,6 +16,7 @@ use Phactorial\NoteLevel;
  * so laying out a formula costs time linear in its size however deeply it nests. Because the parent holds the child (not a copy),
  * a box must not be changed after it has been placed (no add() or place() on a placed child); every node builds a box fully before
  * placing it. Read the list through each() (no flat copy) or $items (flattened on every read).
+ * Users must treat a box's dimensions as read-only; only the engine writes them.
  */
 final class Box
 {
@@ -35,9 +36,6 @@ final class Box
             });
 
             return $out;
-        }
-        set(array $v) {
-            $this->entries = $v;
         }
     }
 
@@ -69,12 +67,16 @@ final class Box
     /**
      * @param float $italic italics correction of the last glyph, in points (used to place superscripts)
      * @param bool $simple true for a single token (letter, digit run, operator): scripts then ignore the base's height
+     *
+     * @internal Engine detail, not public API.
      */
     public function __construct(
         public float $width = 0.0,
         public float $ascent = 0.0,
         public float $descent = 0.0,
+        /** @internal Engine detail, not public API. */
         public float $italic = 0.0,
+        /** @internal Engine detail, not public API. */
         public bool $simple = false,
     ) {
     }
@@ -90,14 +92,14 @@ final class Box
     }
 
     /**
-     * Visit every leaf item in drawing order with its absolute offset: $fn($item, $dx, $dy), where the item itself is as laid out
+     * Visit every leaf item in drawing order with its absolute offset: $visit($item, $dx, $dy), where the item itself is as laid out
      * in its own box and (dx, dy) is the sum of the offsets down to it. No flat list is built.
      *
-     * @param callable(DisplayItem, float, float): void $fn
+     * @param callable(DisplayItem, float, float): void $visit
      */
-    public function each(callable $fn): void
+    public function each(callable $visit): void
     {
-        $this->walk($fn, 0.0, 0.0);
+        $this->walk($visit, 0.0, 0.0);
     }
 
     /** @param callable(DisplayItem, float, float): void $fn */

@@ -566,12 +566,12 @@ final class TexReaderTest extends TestCase
 
     public function test_extensible_arrows(): void
     {
-        self::same(Math::xarrow('→', 'f', Math::row('n → ∞')), '\xrightarrow[n\to\infty]{f}');
-        self::same(Math::xarrow('→', 'f'), '\xrightarrow{f}');
-        self::same(Math::xarrow('→', null, 'u'), '\xrightarrow[u]{}');
-        self::same(Math::xarrow('⇔', 'a'), '\xLeftrightarrow{a}');
-        self::same(Math::xarrow('=', 'a'), '\xlongequal{a}');
-        self::same(Math::xarrow('↦', 'a'), '\xmapsto{a}');
+        self::same(Math::xarrow('→', Math::row('n → ∞'), 'f'), '\xrightarrow[n\to\infty]{f}');
+        self::same(Math::xarrow('→', null, 'f'), '\xrightarrow{f}');
+        self::same(Math::xarrow('→', 'u'), '\xrightarrow[u]{}');
+        self::same(Math::xarrow('⇔', null, 'a'), '\xLeftrightarrow{a}');
+        self::same(Math::xarrow('=', null, 'a'), '\xlongequal{a}');
+        self::same(Math::xarrow('↦', null, 'a'), '\xmapsto{a}');
     }
 
     public function test_not(): void

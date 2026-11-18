@@ -13,14 +13,13 @@ use Phactorial\Layout\Stretcher;
 /** msqrt (no index) and mroot (with index). */
 final class Root extends Node
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public readonly Node $radicand, public readonly ?Node $index = null)
     {
     }
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

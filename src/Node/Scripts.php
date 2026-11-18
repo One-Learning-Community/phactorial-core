@@ -13,6 +13,7 @@ use Phactorial\Layout\Context;
  */
 final class Scripts extends Node
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(
         public readonly Node $base,
         public readonly ?Node $sub,
@@ -27,8 +28,6 @@ final class Scripts extends Node
 
     /**
      * @return list<Node> in reading order: prescripts, base, scripts
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {

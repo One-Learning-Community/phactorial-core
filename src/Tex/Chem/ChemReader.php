@@ -545,7 +545,7 @@ final class ChemReader
         if (ChemArrows::isUnequal($found['arrow'])) {
             ($this->note)(NoteLevel::Approximated, '\\ce', 'unequal equilibrium arrow drawn as ⇌');
         }
-        $this->emit(ChemArrows::node($found['arrow'], $labels[0] ?? null, $labels[1] ?? null));
+        $this->emit(ChemArrows::node($found['arrow'], $labels[1] ?? null, $labels[0] ?? null));
         $this->fresh = true;
     }
 

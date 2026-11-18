@@ -13,6 +13,7 @@ namespace Phactorial\Layout;
  */
 final readonly class Glyph implements DisplayItem
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(
         public int $gid,
         public ?string $text,
@@ -24,7 +25,7 @@ final readonly class Glyph implements DisplayItem
     ) {
     }
 
-    /** @internal Engine detail, not public API. */
+    /** This item moved by $dx and $dy points, as a new item; the original is unchanged. */
     public function translated(float $dx, float $dy): static
     {
         return new self($this->gid, $this->text, $this->x + $dx, $this->y + $dy, $this->size, $this->sx, $this->sy);

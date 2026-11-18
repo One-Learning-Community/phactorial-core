@@ -34,6 +34,10 @@ use Phactorial\Styles;
  */
 final class TextWriter
 {
+    private function __construct()
+    {
+    }
+
     public static function write(Node $root): string
     {
         return trim(self::node($root));

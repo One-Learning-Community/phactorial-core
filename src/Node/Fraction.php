@@ -11,14 +11,13 @@ use Phactorial\Layout\Rule;
 /** mfrac. Display style keeps numerator/denominator at the current size; inline style shrinks them one script level. */
 final class Fraction extends Node
 {
+    /** @internal Engine detail, not public API. */
     public function __construct(public readonly Node $numerator, public readonly Node $denominator, public readonly bool $bar = true)
     {
     }
 
     /**
      * @return list<Node>
-     *
-     * @internal Engine detail, not public API.
      */
     public function children(): array
     {
