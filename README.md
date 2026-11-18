@@ -1,5 +1,7 @@
 # Phactorial
 
+[![phactorial/phactorial](https://img.shields.io/packagist/v/phactorial/phactorial?label=phactorial/phactorial)](https://packagist.org/packages/phactorial/phactorial) [![core](https://github.com/One-Learning-Community/phactorial/actions/workflows/core.yml/badge.svg?branch=main)](https://github.com/One-Learning-Community/phactorial/actions/workflows/core.yml)
+
 Math typesetting in plain PHP. It reads TeX or MathML and writes SVG, PNG, MathML, TeX, Word equations (OMML) or plain
 text. It needs PHP 8.4. No Node, no browser, no fonts on the server.
 
