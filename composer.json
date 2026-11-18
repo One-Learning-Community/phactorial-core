@@ -1,0 +1,65 @@
+{
+    "name": "phactorial/phactorial",
+    "description": "Math typesetting in plain PHP: reads TeX and MathML, writes SVG, PNG, MathML, TeX, Word equations (OMML) and text.",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/One-Learning-Community/phactorial",
+    "support": {
+        "issues": "https://github.com/One-Learning-Community/phactorial/issues",
+        "source": "https://github.com/One-Learning-Community/phactorial"
+    },
+    "authors": [
+        {
+            "name": "One Learning Community",
+            "role": "Maintainer"
+        }
+    ],
+    "keywords": [
+        "math",
+        "equations",
+        "mathml",
+        "tex",
+        "latex",
+        "omml",
+        "svg",
+        "opentype",
+        "phactorial"
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-ctype": "*",
+        "ext-dom": "*",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.3",
+        "phpunit/phpunit": "^13.4"
+    },
+    "suggest": {
+        "ext-imagick": "PngRenderer: formulas as PNG images"
+    },
+    "autoload": {
+        "psr-4": {
+            "Phactorial\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Phactorial\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=1G"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "0.18.x-dev"
+        }
+    }
+}
