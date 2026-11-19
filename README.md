@@ -61,6 +61,11 @@ php tests/render-fixtures.php   # writes tests/out/*.svg, .png (needs rsvg-conve
 Operator spacing and stretching come from the W3C MathML Core operator dictionary. `bin/gen-operators.php` generates
 `resources/operators.php` and records the snapshot URL in its header.
 
+## Issues and pull requests
+
+Development happens in [One-Learning-Community/phactorial](https://github.com/One-Learning-Community/phactorial).
+Report issues and send pull requests there.
+
 ## Credits
 
 The layout design follows [ziamath](https://github.com/cdelker/ziamath) (MIT). The bundled STIX Two Math is under the
