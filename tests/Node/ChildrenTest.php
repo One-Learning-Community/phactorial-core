@@ -7,6 +7,7 @@ namespace Phactorial\Tests\Node;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Phactorial\Math;
+use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fenced;
@@ -40,6 +41,7 @@ final class ChildrenTest extends TestCase
         yield 'matrix, row by row' => [Math::matrix([['a', 'b'], ['c', 'd']], 'none'), Grid::class, ['a', 'b', 'c', 'd']];
         yield 'phantom' => [TexReader::read('\phantom{x}')->node, Phantom::class, ['x']];
         yield 'display style' => [TexReader::read('\displaystyle x')->node, DisplayStyle::class, ['x']];
+        yield 'color' => [new Color(Math::row('x'), '#ff0000'), Color::class, ['x']];
         yield 'tex source' => [TexReader::read('\boxed{x}')->node, TexSource::class, ['x']];
         yield 'fallback' => [TexReader::read('\boxed{x}')->node->children()[0], Fallback::class, ['x']];
     }

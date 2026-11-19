@@ -1,4 +1,11 @@
-# Phactorial
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/One-Learning-Community/phactorial/raw/main/site/src/.vuepress/public/phactorial-wordmark-dark.svg">
+    <img alt="Phactorial" src="https://github.com/One-Learning-Community/phactorial/raw/main/site/src/.vuepress/public/phactorial-wordmark.svg" height="56">
+  </picture>
+</h1>
+
+**Equations made simple.**
 
 [![phactorial/phactorial](https://img.shields.io/packagist/v/phactorial/phactorial?label=phactorial/phactorial)](https://packagist.org/packages/phactorial/phactorial) [![core](https://github.com/One-Learning-Community/phactorial/actions/workflows/core.yml/badge.svg?branch=main)](https://github.com/One-Learning-Community/phactorial/actions/workflows/core.yml)
 

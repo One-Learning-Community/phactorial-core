@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Phactorial\Mathml;
 
+use Phactorial\Colors;
 use Phactorial\MathNote;
+use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
+use Phactorial\Node\Forms;
 use Phactorial\Node\Fenced;
 use Phactorial\Node\Fraction;
 use Phactorial\Node\Grid;
@@ -70,6 +73,9 @@ final class MathmlReader
     /** @var array<string, true> element names already noted in this formula */
     private array $noted = [];
 
+    /** @var \WeakMap<Node, string> where each Color was read, for notes about it */
+    private \WeakMap $paths;
+
     private int $depth = 0;
 
     private int $elements = 0;
@@ -81,6 +87,7 @@ final class MathmlReader
 
     private function __construct()
     {
+        $this->paths = new \WeakMap();
     }
 
     public static function read(string|\Dom\Element $input): MathmlResult
@@ -268,7 +275,7 @@ final class MathmlReader
         }
         $this->depth++;
         try {
-            return $this->dispatch($e, $where);
+            return $this->colored($e, $this->dispatch($e, $where), $where);
         } finally {
             $this->depth--;
         }
@@ -283,6 +290,27 @@ final class MathmlReader
         $this->noted[$key] = true;
 
         return new Fallback($content, new MathNote($level, $element, $reason, $where));
+    }
+
+    /** $node under the element's mathcolor: a Color, or the node in a Fallback noting a value that is no color. */
+    private function colored(\Dom\Element $e, ?Node $node, string $where): ?Node
+    {
+        $value = trim($e->getAttribute('mathcolor') ?? '');
+        if ($node === null || $value === '') {
+            return $node;
+        }
+        $hex = Colors::css($value);
+
+        return $hex !== null
+            ? $this->located(new Color($node, $hex), $where)
+            : $this->note('color|' . $value, $node, NoteLevel::Approximated, self::name($e), Colors::unknown(Colors::masked($value)), $where);
+    }
+
+    private function located(Color $color, string $where): Color
+    {
+        $this->paths[$color] = $where;
+
+        return $color;
     }
 
     private function dispatch(\Dom\Element $e, string $where): ?Node
@@ -399,7 +427,10 @@ final class MathmlReader
                     continue;
                 }
                 array_push($cellNotes, ...self::ignoredOn($td, 'mtd', $cellWhere));
-                $cells[] = $this->children($td, $cellWhere);
+                // The row's color is outermost, so the cell's own color, being inside it, wins.
+                $cell = $this->children($td, $cellWhere);
+                $cell = $this->colored($td, $cell, $cellWhere) ?? $cell;
+                $cells[] = $this->colored($tr, $cell, $rowWhere) ?? $cell;
             }
             $rows[] = $cells;
         }
@@ -541,7 +572,183 @@ final class MathmlReader
     /** The children as one node (a Row, or the child alone), with fences paired. */
     private function children(\Dom\Element $e, string $where): Node
     {
-        return self::row(self::pair(array_values(array_filter($this->slots($e, $where), static fn (?Node $n): bool => $n !== null))));
+        $nodes = $this->pair(array_values(array_filter($this->slots($e, $where), static fn (?Node $n): bool => $n !== null)));
+
+        return self::row(self::restoreDrops(self::halfOpen($nodes), false, false));
+    }
+
+    /**
+     * A lone stretchy opener followed by a row, or a row followed by a lone closer, is a fence the writer left half open
+     * (`\left[ ... \right.`): it never pairs, so the row beside it is read, and laid out, with that delimiter as its edge.
+     *
+     * @param list<Node> $nodes
+     *
+     * @return list<Node>
+     */
+    private static function halfOpen(array $nodes): array
+    {
+        if (count($nodes) !== 2) {
+            return $nodes;
+        }
+        $edge = static function (Node $n, bool $opening): bool {
+            $op = self::delimiter($n)[0];
+
+            return $op instanceof Operator && $op->stretchy !== false && ($opening ? OperatorDictionary::isOpening($op->char) : OperatorDictionary::isClosing($op->char));
+        };
+        if ($edge($nodes[0], true) && self::isContent($nodes[1])) {
+            return [$nodes[0], self::beside($nodes[1], true, false)];
+        }
+        if ($edge($nodes[1], false) && self::isContent($nodes[0])) {
+            return [self::beside($nodes[0], false, true), $nodes[1]];
+        }
+
+        return $nodes;
+    }
+
+    /**
+     * Undoes the zeros the writer put where TeX gives no space (see Forms::drops()), so the row lays out as the source did.
+     * A zero side may be such a drop or an explicit zero of the source (`\mathord{=}` is 0 on both sides), and the two read
+     * alike, so the row is asked: every operator with a zero side is tried with its zero sides restored (to the dictionary,
+     * or to the thick space when the other side is one, as `\mathrel{:}` is), and the restoration is kept only when the
+     * operator is then a relation and Forms::drops() drops each of those sides again. That is the one rule the layout
+     * applies, so what was dropped is restored and what was explicit stays. An operator whose restoration is not kept is
+     * tried again without it in the neighbors' view, until the set holds still.
+     *
+     * Known limitation: a `\mathrel` on any symbol that is not a relation (`\mathrel{:}`) that loses its thick space on both
+     * sides, between two relations (`a \leq \mathrel{:} \leq b`) or between a fence and a relation, is written 0 on both
+     * sides, as a `\mathord` is, and reads back as the latter.
+     *
+     * @param list<Node> $nodes
+     *
+     * @return list<Node>
+     */
+    private static function restoreDrops(array $nodes, bool $open, bool $close): array
+    {
+        // The non-space-like nodes in order (TeX's spacing skips glue), and the first of them: an aligned cell's lead operator
+        // is written form="infix", which the row alone would call prefix.
+        $atoms = [];
+        foreach ($nodes as $i => $node) {
+            if (! Forms::spaceLike($node)) {
+                $atoms[] = $i;
+            }
+        }
+        $place = array_flip($atoms);
+        $lead = $atoms[0] ?? -1;
+        // A restoration may not drop a neighbor's facing side that the source left standing.
+        $zeroed = [];
+        foreach ($nodes as $i => $node) {
+            $op = Fallback::unwrap($node);
+            $zeroed[$i] = $op instanceof Operator ? [self::zero($op->lspace), self::zero($op->rspace)] : [false, false];
+        }
+        $lone = count($atoms) === 1 && ($open || $close);
+
+        // A side that stays is the exact thick space when it is a thick one, so the class reads back as `\mathrel`.
+        $keep = static fn (?float $side): ?float => $side !== null && Forms::isThick($side) ? Forms::THICK : $side;
+        $restore = static fn (?float $other): ?float => $other !== null && Forms::isThick($other) ? Forms::THICK : null;
+
+        $tries = [];
+        foreach ($nodes as $i => $node) {
+            $op = Fallback::unwrap($node);
+            if (! $op instanceof Operator) {
+                continue;
+            }
+            [$zeroL, $zeroR] = $zeroed[$i];
+            if (! $zeroL && ! $zeroR) {
+                continue;
+            }
+            $back = $op->withSpaces($zeroL ? $restore($op->rspace) : $keep($op->lspace), $zeroR ? $restore($op->lspace) : $keep($op->rspace));
+            if (Forms::isRelation($back)) {
+                // The row is judged by position alone, so the form is dropped for the trial, but kept where the position
+                // would not give it back: an infix lead, or the lone content of a fence.
+                $tries[$i] = [
+                    'back' => Fallback::mapInner($node, static fn (): Operator => $back),
+                    'trial' => Fallback::mapInner($node, static fn (): Operator => $i === $lead && $op->form === OperatorDictionary::FORM_INFIX ? $back : $back->withForm(null)),
+                    'left' => $zeroL,
+                    'right' => $zeroR,
+                    'form' => $lone ? null : $op->form,
+                ];
+            }
+        }
+        // Each pass drops the tries that do not hold, so it runs at most once per try and lays the row out each time: quadratic
+        // in a long run of zero-sided operators (about 14 s at 4000 of them), bounded by the 16,384-character input cap.
+        while ($tries !== []) {
+            $trial = $nodes;
+            foreach ($tries as $i => $try) {
+                $trial[$i] = $try['trial'];
+            }
+            $trial = array_values($trial);
+            $forms = Forms::of($trial);
+            $drops = Forms::drops($trial, $forms, $open, $close);
+            $kept = array_filter(
+                $tries,
+                static function (array $try, int $i) use ($forms, $drops, $zeroed, $atoms, $place): bool {
+                    $before = $atoms[$place[$i] - 1] ?? null;
+                    $after = $atoms[$place[$i] + 1] ?? null;
+
+                    return ($try['form'] === null || $forms[$i] === $try['form'])
+                        && (! $try['left'] || $drops[$i][0]) && (! $try['right'] || $drops[$i][1])
+                        && ($before === null || ! $drops[$before][1] || $zeroed[$before][1])
+                        && ($after === null || ! $drops[$after][0] || $zeroed[$after][0]);
+                },
+                ARRAY_FILTER_USE_BOTH,
+            );
+            if (count($kept) === count($tries)) {
+                break;
+            }
+            $tries = $kept;
+        }
+        foreach ($tries as $i => $try) {
+            $nodes[$i] = $try['back'];
+        }
+
+        return array_values($nodes);
+    }
+
+    /**
+     * The content of a half-open fence, read with the delimiter beside it and laid out so too. Content that reading left as
+     * it was is returned as it was: nothing was restored, so nothing is a fence's edge.
+     */
+    private static function beside(Node $content, bool $open, bool $close): Node
+    {
+        $read = self::edged([$content], $open, $close);
+        $kids = static fn (Node $n): array => ($u = Fallback::unwrap($n)) instanceof Row ? $u->children : [$u];
+        if ($kids($read) === $kids($content)) {
+            return $content;
+        }
+
+        return Fenced::edged($read, $open, $close);
+    }
+
+    /** A row or a lone operator: what the writer puts between the delimiters of a fence. */
+    private static function isContent(Node $n): bool
+    {
+        $n = Fallback::unwrap($n);
+
+        return $n instanceof Row || $n instanceof Operator;
+    }
+
+    /**
+     * The content of a fence, as a node. The writer puts it in a nested row, which the reader read with no fence beside it,
+     * so a lone row (or operator) is read again with the delimiters as its edges.
+     *
+     * @param list<Node> $nodes
+     */
+    private static function edged(array $nodes, bool $open, bool $close): Node
+    {
+        if (count($nodes) === 1) {
+            return Fallback::mapInner($nodes[0], static fn (Node $n): Node => match (true) {
+                $n instanceof Row => new Row(self::restoreDrops($n->children, $open, $close)),
+                $n instanceof Operator => self::restoreDrops([$n], $open, $close)[0],
+                default => $n,
+            });
+        }
+
+        return self::row(self::restoreDrops($nodes, $open, $close));
+    }
+
+    private static function zero(?float $v): bool
+    {
+        return $v !== null && abs($v) < 1e-6;
     }
 
     /** @param list<Node> $nodes */
@@ -809,7 +1016,10 @@ final class MathmlReader
         // MathType writes angle brackets as open="&lt;" close="&gt;".
         $angle = static fn (string $c): string => ['<' => '⟨', '>' => '⟩'][$c] ?? $c;
 
-        return new Fenced($angle(trim((string) $open)), $angle(trim((string) $close)), self::row($nodes));
+        $open = $angle(trim((string) $open));
+        $close = $angle(trim((string) $close));
+
+        return new Fenced($open, $close, self::edged($nodes, $open !== '', $close !== ''));
     }
 
     /**
@@ -821,19 +1031,21 @@ final class MathmlReader
      *
      * @return list<Node>
      */
-    private static function pair(array $nodes): array
+    private function pair(array $nodes): array
     {
         $out = [];
         /** @var list<array{int, Operator}> $stack */
         $stack = [];
         foreach ($nodes as $n) {
-            if (! $n instanceof Operator || $n->stretchy === false) {
+            // A colored operator pairs like a plain one; the Fenced has no per-delimiter color; the reader notes the dropped color.
+            $op = self::delimiter($n)[0];
+            if (! $op instanceof Operator || $op->stretchy === false) {
                 $out[] = $n;
                 continue;
             }
-            $ch = $n->char;
+            $ch = $op->char;
             if (OperatorDictionary::isOpening($ch)) {
-                $stack[] = [count($out), $n];
+                $stack[] = [count($out), $op];
                 $out[] = $n;
             } elseif (OperatorDictionary::isClosing($ch)) {
                 $found = null;
@@ -853,8 +1065,8 @@ final class MathmlReader
                         $inner[] = [$innerIdx - $idx - 1, $innerOpener];
                     }
                     $stack = array_slice($stack, 0, $found);
-                    $between = self::foldLoneOpeners(array_splice($out, $idx + 1), $inner);
-                    $out[$idx] = new Fenced($opener->char, $ch, self::row(self::bars($between)));
+                    $between = $this->foldLoneOpeners(array_splice($out, $idx + 1), $inner);
+                    $out[$idx] = $this->fence($out[$idx], $n, $opener->char, $ch, self::edged($this->bars($between), true, true));
                 }
             } else {
                 $out[] = $n;
@@ -862,7 +1074,7 @@ final class MathmlReader
         }
 
         // An opener with no closer, directly before a table, fences it alone: `{` then a table is cases.
-        return self::bars(self::foldLoneOpeners(array_values($out), $stack));
+        return $this->bars($this->foldLoneOpeners(array_values($out), $stack));
     }
 
     /**
@@ -873,7 +1085,7 @@ final class MathmlReader
      *
      * @return list<Node>
      */
-    private static function foldLoneOpeners(array $nodes, array $openers): array
+    private function foldLoneOpeners(array $nodes, array $openers): array
     {
         $fold = [];
         foreach ($openers as [$idx, $opener]) {
@@ -889,7 +1101,7 @@ final class MathmlReader
         $count = count($nodes);
         for ($i = 0; $i < $count; $i++) {
             if (isset($fold[$i])) {
-                $out[] = new Fenced($fold[$i]->char, '', $nodes[++$i]);
+                $out[] = $this->fence($nodes[$i], null, $fold[$i]->char, '', $nodes[++$i]);
             } else {
                 $out[] = $nodes[$i];
             }
@@ -899,23 +1111,76 @@ final class MathmlReader
     }
 
     /**
+     * A Fenced; it has no color per delimiter, so a color on a delimiter that paired is noted (once per formula) and not
+     * drawn. A delimiter's own rejected-color note goes around the Fenced, so a bad color lays out as no color and keeps its note.
+     */
+    private function fence(Node $open, ?Node $close, string $openChar, string $closeChar, Node $content): Node
+    {
+        $result = new Fenced($openChar, $closeChar, $content);
+        $dropped = null;
+        foreach ([$open, $close] as $delimiter) {
+            if ($delimiter === null) {
+                continue;
+            }
+            [, $color, $wrappers] = self::delimiter($delimiter);
+            $dropped ??= $color;
+            foreach ($wrappers as $wrapper) {
+                $result = new Fallback($result, $wrapper->note);
+            }
+        }
+        if ($dropped !== null) {
+            $result = $this->note('#color-pair', $result, NoteLevel::Approximated, 'mo', 'color on a paired delimiter is not drawn', $this->paths[$dropped] ?? 'mo') ?? $result;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The node under the Color wrappers and the rejected-color notes around it (only those: any other note stops a
+     * delimiter from pairing, or the fence would drop it); the first Color peeled, if any; and the note wrappers, outermost first.
+     *
+     * @return array{Node, ?Color, list<Fallback>}
+     */
+    private static function delimiter(Node $n): array
+    {
+        $first = null;
+        $wrappers = [];
+        while (true) {
+            if ($n instanceof Color) {
+                $first ??= $n;
+                $n = $n->content;
+            } elseif ($n instanceof Fallback && $n->content !== null && Colors::isUnknown($n->note->reason)) {
+                $wrappers[] = $n;
+                $n = $n->content;
+            } else {
+                return [$n, $first, $wrappers];
+            }
+        }
+    }
+
+    /**
      * Pairs `|` with the next `|` and `‖` with the next `‖` among these siblings; a lone bar stays plain.
      *
      * @param list<Node> $nodes
      *
      * @return list<Node>
      */
-    private static function bars(array $nodes): array
+    private function bars(array $nodes): array
     {
-        $isBar = static fn (Node $n, string $ch): bool => $n instanceof Operator && $n->stretchy !== false && $n->char === $ch;
+        $isBar = static function (Node $n, string $ch): bool {
+            $n = self::delimiter($n)[0];
+
+            return $n instanceof Operator && $n->stretchy !== false && $n->char === $ch;
+        };
         $out = [];
         $count = count($nodes);
         for ($i = 0; $i < $count; $i++) {
             $n = $nodes[$i];
+            $op = self::delimiter($n)[0];
             $close = null;
-            if ($n instanceof Operator && $n->stretchy !== false && ($n->char === '|' || $n->char === '‖')) {
+            if ($op instanceof Operator && $op->stretchy !== false && ($op->char === '|' || $op->char === '‖')) {
                 for ($j = $i + 1; $j < $count; $j++) {
-                    if ($isBar($nodes[$j], $n->char)) {
+                    if ($isBar($nodes[$j], $op->char)) {
                         $close = $j;
                         break;
                     }
@@ -925,7 +1190,7 @@ final class MathmlReader
                 $out[] = $n;
                 continue;
             }
-            $out[] = new Fenced($n->char, $n->char, self::row(self::bars(array_slice($nodes, $i + 1, $close - $i - 1))));
+            $out[] = $this->fence($n, $nodes[$close], $op->char, $op->char, self::edged($this->bars(array_slice($nodes, $i + 1, $close - $i - 1)), true, true));
             $i = $close;
         }
 

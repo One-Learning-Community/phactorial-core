@@ -59,6 +59,26 @@ final class Operator extends Node
     }
 
     /**
+     * A copy with the given spaces (mu; null reads the dictionary), everything else kept.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public function withSpaces(?float $lspace, ?float $rspace): self
+    {
+        return new self($this->char, $this->stretchy, $this->largeop, $this->movablelimits, $this->form, $lspace, $rspace, $this->minSize, $this->maxSize);
+    }
+
+    /**
+     * A copy with the form fixed, everything else kept.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public function withForm(?string $form): self
+    {
+        return new self($this->char, $this->stretchy, $this->largeop, $this->movablelimits, $form, $this->lspace, $this->rspace, $this->minSize, $this->maxSize);
+    }
+
+    /**
      * Whether this is a large operator (a sum, an integral) in the given form: drawn bigger in display style.
      *
      * @internal Engine detail, not public API.

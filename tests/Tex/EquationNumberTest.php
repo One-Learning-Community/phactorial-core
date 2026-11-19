@@ -67,4 +67,13 @@ final class EquationNumberTest extends TestCase
         self::assertSame(1, $rows);
         self::assertSame(1, substr_count(MathmlWriter::write($tree), '<mtr>'));
     }
+
+    public function test_a_tag_after_a_color_switch_stays_an_equation_number(): void
+    {
+        foreach (['\\color{red} \\tag{1}', 'x \\color{red}\\tag{1}', '\\color{bogus} \\tag{1}', '\\color{red} x \\tag{1}'] as $tex) {
+            self::assertSame($tex, self::write($tex), $tex);
+        }
+        // Still once: a second tag after the switch is dropped.
+        self::assertSame('\\tag{1} \\color{red} x', self::write('\\tag{1} \\color{red} x \\tag{2}'));
+    }
 }

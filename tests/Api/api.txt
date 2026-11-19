@@ -19,6 +19,7 @@ Phactorial\Layout\Box::notes() | (): array ; @return list<MathNote>
 Phactorial\Layout\DisplayItem | interface
 Phactorial\Layout\DisplayItem::translated() | abstract (float $dx, float $dy): static
 Phactorial\Layout\Glyph | final readonly class implements Phactorial\Layout\DisplayItem
+Phactorial\Layout\Glyph::$color | readonly protected(set) ?string
 Phactorial\Layout\Glyph::$gid | readonly protected(set) int
 Phactorial\Layout\Glyph::$size | readonly protected(set) float
 Phactorial\Layout\Glyph::$sx | readonly protected(set) float
@@ -27,12 +28,15 @@ Phactorial\Layout\Glyph::$text | readonly protected(set) ?string
 Phactorial\Layout\Glyph::$x | readonly protected(set) float
 Phactorial\Layout\Glyph::$y | readonly protected(set) float
 Phactorial\Layout\Glyph::translated() | (float $dx, float $dy): static
+Phactorial\Layout\Glyph::withColor() | (string $color): static
 Phactorial\Layout\Rule | final readonly class implements Phactorial\Layout\DisplayItem
+Phactorial\Layout\Rule::$color | readonly protected(set) ?string
 Phactorial\Layout\Rule::$h | readonly protected(set) float
 Phactorial\Layout\Rule::$w | readonly protected(set) float
 Phactorial\Layout\Rule::$x | readonly protected(set) float
 Phactorial\Layout\Rule::$y | readonly protected(set) float
 Phactorial\Layout\Rule::translated() | (float $dx, float $dy): static
+Phactorial\Layout\Rule::withColor() | (string $color): static
 Phactorial\Math | final class
 Phactorial\Math::BIG_SIZES | const = array ( 0 => 1.2, 1 => 1.8, 2 => 2.4, 3 => 3.0, )
 Phactorial\Math::accent() | static (Phactorial\Node\Node|string $base, string $mark): Phactorial\Node\UnderOver
@@ -119,6 +123,11 @@ Phactorial\Mathml\MathmlResult::notes() | (): array ; @return list<MathNote>
 Phactorial\Mathml\SafeXml | final class
 Phactorial\Mathml\SafeXml::decode() | static (string $text): string
 Phactorial\Mathml\SafeXml::find() | static (string $text): array ; @return list<array{int, int}>
+Phactorial\Node\Color | final class extends Phactorial\Node\Node
+Phactorial\Node\Color::$color | readonly protected(set) string
+Phactorial\Node\Color::$content | readonly protected(set) Phactorial\Node\Node
+Phactorial\Node\Color::$inline | readonly protected(set) bool
+Phactorial\Node\Color::children() | (): array ; @return list<Node>
 Phactorial\Node\DisplayStyle | final class extends Phactorial\Node\Node
 Phactorial\Node\DisplayStyle::$content | readonly protected(set) Phactorial\Node\Node
 Phactorial\Node\DisplayStyle::$display | readonly protected(set) bool

@@ -35,19 +35,40 @@ final class Fenced extends Node
         return [$this->content];
     }
 
+    /**
+     * The content with its row (through notes, display switches, source and color) told it sits inside the delimiters, so a
+     * relation first or last in it drops its space against a delimiter. An empty delimiter is none.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public static function edged(Node $content, bool $open, bool $close): Node
+    {
+        if (! $open && ! $close) {
+            return $content;
+        }
+
+        // A lone operator is a row of one, so it too has the delimiters beside it.
+        return Fallback::mapInner($content, static fn (Node $n): Node => match (true) {
+            $n instanceof Row => $n->inFence($open, $close),
+            $n instanceof Operator => (new Row([$n]))->inFence($open, $close),
+            default => $n,
+        });
+    }
+
     /** @internal Engine detail, not public API. */
     public function layout(Context $c): Box
     {
+        $content = self::edged($this->content, $this->open !== '', $this->close !== '');
         // A row with Middles is laid out once; only its Middles are laid out again, at the stretched size.
-        $row = self::middleRow($this->content);
+        $row = self::middleRow($content);
         $boxes = [];
         $rc = $c;
         if ($row !== null) {
-            foreach (Fallback::displays($this->content) as $display) {
+            foreach (Fallback::displays($content) as $display) {
                 $rc = $rc->withDisplay($display);
             }
         }
-        $inner = $row !== null ? $row->build($rc, [], $boxes) : $this->content->layout($c);
+        $inner = $row !== null ? $row->build($rc, [], $boxes) : $content->layout($c);
         $axis = $c->k('axisHeight');
         $req = 2 * max($inner->ascent - $axis, $inner->descent + $axis);
         // TeX's delimiterfactor (0.901) and delimitershortfall (5pt at 10pt): not stretched to the full height.
@@ -58,13 +79,19 @@ final class Fenced extends Node
         if ($row !== null) {
             /** @var array<int, Box> $reuse */
             $reuse = $boxes ?? [];
-            foreach ($row->children as $i => $child) {
+            foreach ($row->items() as $i => [$child, $inline]) {
                 if (Fallback::unwrap($child) instanceof Middle) {
-                    $reuse[$i] = self::stretchMiddle($child, $req)->layout($rc);
+                    $b = self::stretchMiddle($child, $req)->layout($rc);
+                    $reuse[$i] = $inline !== null ? Color::box($b, $inline) : $b;
                 }
             }
             $boxes = [];
             $inner = $row->build($rc, $reuse, $boxes);
+            // The row was reached through any wrappers around it; a color among them (`\left( \color{red} a \middle| b \right)`) still applies.
+            $color = Fallback::color($content);
+            if ($color !== null) {
+                $inner = Color::box($inner, $color);
+            }
         }
         $asc = $inner->ascent;
         $desc = $inner->descent;
@@ -86,14 +113,14 @@ final class Fenced extends Node
         return $out;
     }
 
-    /** The Row the content is (through notes and display switches) when a Middle is among its children, else null. */
+    /** The Row the content is (through notes and display switches) when a Middle is among its items (see Row::items()), else null. */
     private static function middleRow(Node $content): ?Row
     {
         $content = Fallback::unwrap($content);
         if (! $content instanceof Row) {
             return null;
         }
-        foreach ($content->children as $n) {
+        foreach ($content->nodes() as $n) {
             if (Fallback::unwrap($n) instanceof Middle) {
                 return $content;
             }
@@ -109,13 +136,7 @@ final class Fenced extends Node
      */
     public static function stretchMiddles(Node $n, float $req): Node
     {
-        return match (true) {
-            $n instanceof Row => new Row(array_map(static fn (Node $child): Node => self::stretchMiddle($child, $req), $n->children)),
-            $n instanceof Fallback && $n->content !== null => new Fallback(self::stretchMiddles($n->content, $req), $n->note),
-            $n instanceof DisplayStyle => new DisplayStyle(self::stretchMiddles($n->content, $req), $n->display),
-            $n instanceof TexSource => new TexSource(self::stretchMiddles($n->content, $req), $n->tex, $n->close),
-            default => $n,
-        };
+        return Fallback::mapInner($n, static fn (Node $inner): Node => $inner instanceof Row ? new Row(array_map(static fn (Node $child): Node => self::stretchMiddle($child, $req), $inner->children)) : $inner);
     }
 
     private static function stretchMiddle(Node $n, float $req): Node
@@ -125,6 +146,8 @@ final class Fenced extends Node
             $n instanceof Fallback && $n->content !== null => new Fallback(self::stretchMiddle($n->content, $req), $n->note),
             $n instanceof DisplayStyle => new DisplayStyle(self::stretchMiddle($n->content, $req), $n->display),
             $n instanceof TexSource => new TexSource(self::stretchMiddle($n->content, $req), $n->tex, $n->close),
+            // An inline color's row is spliced into the parent (see Row::items()), so its Middles stretch like the parent's.
+            $n instanceof Color => new Color($n->inline && Fallback::unwrap($n->content) instanceof Row ? self::stretchMiddles($n->content, $req) : self::stretchMiddle($n->content, $req), $n->color, $n->inline),
             default => $n,
         };
     }

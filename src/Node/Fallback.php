@@ -17,7 +17,7 @@ final class Fallback extends Node
     }
 
     /**
-     * Sees through what only annotates a node (a Fallback with content, a DisplayStyle, a TexSource), so checks for an Operator or
+     * Sees through what only annotates a node (a Fallback with content, a DisplayStyle, a TexSource, a Color), so checks for an Operator or
      * a Fraction find it.
      *
      * @internal Engine detail, not public API.
@@ -27,10 +27,51 @@ final class Fallback extends Node
         while (true) {
             if ($n instanceof self && $n->content !== null) {
                 $n = $n->content;
-            } elseif ($n instanceof DisplayStyle || $n instanceof TexSource) {
+            } elseif ($n instanceof DisplayStyle || $n instanceof TexSource || $n instanceof Color) {
                 $n = $n->content;
             } else {
                 return $n;
+            }
+        }
+    }
+
+    /**
+     * The node with $f applied to what unwrap() would reach (the innermost node past notes, display switches, source and
+     * color), each wrapper put back around the result.
+     *
+     * @param \Closure(Node): Node $f
+     *
+     * @internal Engine detail, not public API.
+     */
+    public static function mapInner(Node $n, \Closure $f): Node
+    {
+        return match (true) {
+            $n instanceof self && $n->content !== null => new self(self::mapInner($n->content, $f), $n->note),
+            $n instanceof DisplayStyle => new DisplayStyle(self::mapInner($n->content, $f), $n->display),
+            $n instanceof TexSource => new TexSource(self::mapInner($n->content, $f), $n->tex, $n->close),
+            $n instanceof Color => new Color(self::mapInner($n->content, $f), $n->color, $n->inline),
+            default => $f($n),
+        };
+    }
+
+    /**
+     * The color of the innermost Color wrapper unwrap() peels, or null when it peels none.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public static function color(Node $n): ?string
+    {
+        $color = null;
+        while (true) {
+            if ($n instanceof self && $n->content !== null) {
+                $n = $n->content;
+            } elseif ($n instanceof DisplayStyle || $n instanceof TexSource) {
+                $n = $n->content;
+            } elseif ($n instanceof Color) {
+                $color = $n->color;
+                $n = $n->content;
+            } else {
+                return $color;
             }
         }
     }
@@ -48,7 +89,7 @@ final class Fallback extends Node
         while (true) {
             if ($n instanceof self && $n->content !== null) {
                 $n = $n->content;
-            } elseif ($n instanceof TexSource) {
+            } elseif ($n instanceof TexSource || $n instanceof Color) {
                 $n = $n->content;
             } elseif ($n instanceof DisplayStyle) {
                 $out[] = $n->display;

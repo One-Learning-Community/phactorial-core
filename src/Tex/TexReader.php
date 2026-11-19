@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Phactorial\Tex;
 
+use Phactorial\Colors;
 use Phactorial\Math;
 use Phactorial\MathNote;
+use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fenced;
@@ -326,9 +328,9 @@ final class TexReader
      *
      * @param Node|\Closure(): Node|null $content
      */
-    private function note(NoteLevel $level, string $element, string $reason, int $offset, Node|\Closure|null $content = null): Node
+    private function note(NoteLevel $level, string $element, string $reason, int $offset, Node|\Closure|null $content = null, ?string $key = null): Node
     {
-        $key = $element . '|' . $reason;
+        $key ??= $element . '|' . $reason;
         $seen = isset($this->noted[$key]);
         $this->noted[$key] = true;
         if ($content instanceof \Closure) {
@@ -358,6 +360,27 @@ final class TexReader
         return $nodes;
     }
 
+    /** The generalized fraction commands: each takes everything before it in its group as the numerator. */
+    private const FRACTION_COMMANDS = ['over', 'choose', 'atop', 'brace', 'brack'];
+
+    /**
+     * `a \over b` and its kin, from the nodes before the command and those after it.
+     *
+     * @param list<Node> $numerator
+     * @param list<Node> $denominator
+     */
+    private static function generalizedFraction(string $command, array $numerator, array $denominator): Node
+    {
+        $frac = new Fraction(self::row($numerator), self::row($denominator), $command === 'over');
+
+        return match ($command) {
+            'choose' => new Fenced('(', ')', $frac),
+            'brace' => new Fenced('{', '}', $frac),
+            'brack' => new Fenced('[', ']', $frac),
+            default => $frac,
+        };
+    }
+
     /** @return list<Node> */
     private function parseUntilStops(): array
     {
@@ -383,16 +406,10 @@ final class TexReader
                 if ($spaced && ($m = $this->spacingNote($t[2])) !== null) {
                     $nodes[] = new Fallback(null, $m);
                 }
-            } elseif ($ty === 'cs' && in_array($t[1], ['over', 'choose', 'atop', 'brace', 'brack'], true)) {
+            } elseif ($ty === 'cs' && in_array($t[1], self::FRACTION_COMMANDS, true)) {
                 $this->c->p++;
-                $frac = new Fraction(self::row($nodes), self::row($this->parseUntil(...$stops)), $t[1] === 'over');
 
-                return [match ($t[1]) {
-                    'choose' => new Fenced('(', ')', $frac),
-                    'brace' => new Fenced('{', '}', $frac),
-                    'brack' => new Fenced('[', ']', $frac),
-                    default => $frac,
-                }];
+                return [self::generalizedFraction($t[1], $nodes, $this->parseUntil(...$stops))];
             } elseif ($ty === 'cs' && in_array($t[1], ['displaystyle', 'textstyle', 'scriptstyle', 'scriptscriptstyle'], true)) {
                 $this->c->p++;
                 $this->display = $this->display || ($t[1] === 'displaystyle' && $this->depth === 0 && $this->envDepth === 0);
@@ -404,12 +421,53 @@ final class TexReader
 
                 return $nodes;
             } elseif ($ty === 'cs' && $t[1] === 'color') {
+                // A switch that opens a group (`{\color{red} x}`) is written back with its brace; one that does not keeps none.
+                $before = $this->c->p - 1;
+                while (($this->c->t[$before][0] ?? '') === 'sp') {
+                    $before--;
+                }
+                $braced = ($this->c->t[$before][0] ?? '') === '{' && $before !== $this->argumentBrace;
                 $this->c->p++;
-                $color = self::colorName($this->c->rawGroup());
-                $node = $this->note(NoteLevel::Approximated, '\\color', 'color is not drawn', $t[2], fn (): Node => self::row($this->parseUntil(...$stops)));
-                $nodes[] = new TexSource($node, '{\\color{' . $color . '} ', '}');
+                [$spelling, $hex, $spec] = $this->colorArg();
+                $space = $this->c->peekIs('sp') ? ' ' : '';
+                // An accepted switch runs to the end of its group: inside \left..\right that is \right, so a \middle on the way stays in it.
+                // A rejected one is no color and keeps stopping at \middle, laying out as if absent.
+                $rest = function () use ($stops, $hex): Node {
+                    $parts = [];
+                    $middle = false;
+                    $last = 0;
+                    while (true) {
+                        // \over and its kin end the body: they take the whole group, switch included, as their numerator.
+                        array_push($parts, ...$this->parseUntil(...$stops, ...self::FRACTION_COMMANDS));
+                        $next = $this->c->peek();
+                        if ($middle && $next !== null && $next[0] === 'cs' && in_array($next[1], self::FRACTION_COMMANDS, true)) {
+                            // Past a \middle, the fraction takes only what follows the last one, as it does uncolored.
+                            $this->c->p++;
+                            $numerator = array_splice($parts, $last);
+                            $parts[] = self::generalizedFraction($next[1], $numerator, $this->parseUntil(...$stops));
+                            $next = $this->c->peek();
+                        }
+                        if ($hex === null || ! in_array('middle', $stops, true) || $next === null || $next[0] !== 'cs' || $next[1] !== 'middle') {
+                            break;
+                        }
+                        $this->c->p++;
+                        $mid = $this->delimiter();
+                        if ($mid !== null && $mid !== '') {
+                            $parts[] = new Middle($mid);
+                        }
+                        // `\middle.` draws nothing but still ends what a fraction after it takes.
+                        $middle = true;
+                        $last = count($parts);
+                    }
 
-                return $nodes;
+                    return $middle ? new Row($parts) : self::row($parts);
+                };
+                $node = $hex === null
+                    ? $this->note(NoteLevel::Approximated, '\\color', Colors::unknown($spec), $t[2], $rest, 'color|' . $spec)
+                    : new Color($rest(), $hex, true);
+                $nodes[] = new TexSource($node, ($braced ? '{' : '') . '\\color' . $spelling . $space, $braced ? '}' : '');
+                // The body stopped at an \over, a stop, or the end: the loop goes on and handles it.
+                continue;
             } elseif ($ty === 'cs' && isset(TexSymbols::FONT_SWITCHES[$t[1]])) {
                 $this->c->p++;
                 $this->font = TexSymbols::FONT_SWITCHES[$t[1]];
@@ -593,8 +651,13 @@ final class TexReader
         return $this->note(NoteLevel::Approximated, $element, 'nested too deeply', $at, new Text(trim($src)));
     }
 
-    /** One argument: a group's content or a single atom (a digit is one digit, as in `\frac12`). */
-    private function parseArgument(): Node
+    /**
+     * One argument: a group's content or a single atom (a digit is one digit, as in `\frac12`).
+     *
+     * $rebraced says whether the writer writes braces back around this argument. A font or class command does not (its content
+     * joins the row around it), so a color switch in its argument keeps a group of its own, or it would color what follows.
+     */
+    private function parseArgument(bool $rebraced = true): Node
     {
         $this->c->skipSp();
         $t = $this->c->peek();
@@ -602,6 +665,9 @@ final class TexReader
             return $this->missingArgument();
         }
         if ($t[0] === '{') {
+            // When the argument's own braces are written back, a switch that opens in them goes without its own.
+            $this->argumentBrace = $rebraced ? $this->c->p : null;
+
             return self::row($this->groupNodes());
         }
         $this->takeNullDelimiter();
@@ -610,9 +676,23 @@ final class TexReader
             // `x^\big.`: a null delimiter is a valid argument, and draws nothing.
             return new Row([]);
         }
+        if ($a === null) {
+            return $this->missingArgument();
+        }
 
-        return $a === null ? $this->missingArgument() : $a[0];
+        return $rebraced ? $a[0] : self::ownGroup($a[0]);
     }
+
+    /** A bare color switch read as a whole argument (`\mathrm\color{red} x`) in a group of its own, so it colors nothing after it. */
+    private static function ownGroup(Node $node): Node
+    {
+        return $node instanceof TexSource && $node->isColorSwitch()
+            ? new TexSource($node->content, '{' . $node->tex, '}')
+            : $node;
+    }
+
+    /** Token index of the `{` that opens the argument being read, or null. */
+    private ?int $argumentBrace = null;
 
     /** Set when the atom just read was a null delimiter (`\big.`): no node, but not a missing argument. */
     private bool $nullDelimiter = false;
@@ -705,11 +785,12 @@ final class TexReader
         $this->c->skipSp();
         $t = $this->c->peek();
         if ($t === null || $t[0] === '{' || $this->endsArguments($t)) {
-            return [$this->parseArgument(), 'ord'];
+            // The base is written back as a script base, braced only when it is not one atom.
+            return [$this->parseArgument(false), 'ord'];
         }
         $a = $this->parseAtom(true);
 
-        return $a === null ? [$this->missingArgument(), 'ord'] : [$a[0], $a[1]];
+        return $a === null ? [$this->missingArgument(), 'ord'] : [self::ownGroup($a[0]), $a[1]];
     }
 
     /**
@@ -1346,13 +1427,24 @@ final class TexReader
             case 'notag':
                 return null; // equation numbers are not drawn, so there is nothing to switch off
             case 'color':
-                $color = self::colorName($this->c->rawGroup());
+                [$spelling, $hex, $spec] = $this->colorArg();
 
-                return [new TexSource($this->note(NoteLevel::Approximated, '\\color', 'color is not drawn', $at), '\\color{' . $color . '}', ''), 'ord', null];
+                return [new TexSource($hex === null ? $this->note(NoteLevel::Approximated, '\\color', Colors::unknown($spec), $at, null, 'color|' . $spec) : new Row([]), '\\color' . $spelling, ''), 'ord', null];
             case 'textcolor':
-                $color = self::colorName($this->c->rawGroup());
+                [$spelling, $hex, $spec] = $this->colorArg();
+                $node = $hex === null
+                    ? $this->note(NoteLevel::Approximated, '\\textcolor', Colors::unknown($spec), $at, fn (): Node => $this->parseArgument(), 'color|' . $spec)
+                    : new Color($this->parseArgument(), $hex);
 
-                return [new TexSource($this->note(NoteLevel::Approximated, '\\textcolor', 'color is not drawn', $at, fn (): Node => $this->parseArgument()), '\\textcolor{' . $color . '}{', '}'), 'ord', null];
+                // A colored large operator keeps the class its bare symbol has: a sum still takes its limits above and below in display
+                // style, an integral keeps them beside it.
+                $op = Fallback::unwrap($node);
+                $kind = 'ord';
+                if ($op instanceof Operator && $op->isLargeop(OperatorDictionary::FORM_PREFIX)) {
+                    $kind = $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX) ? 'op' : 'int';
+                }
+
+                return [new TexSource($node, '\\textcolor' . $spelling . '{', '}'), $kind, null];
             case 'boxed':
                 return [new TexSource($this->note(NoteLevel::Approximated, '\\boxed', 'the box is not drawn', $at, fn (): Node => $this->parseArgument()), '\\boxed{', '}'), 'ord', null];
             case 'fbox':
@@ -1386,7 +1478,8 @@ final class TexReader
                 $count = ['tensor' => 2, 'mathchoice' => 4, 'newenvironment' => 3, 'renewenvironment' => 3][$name];
                 $args = [];
                 for ($i = 0; $i < $count; $i++) {
-                    $args[] = $this->parseArgument();
+                    // The arguments are written back side by side, without their braces.
+                    $args[] = $this->parseArgument(false);
                 }
 
                 return [$this->note(NoteLevel::Approximated, '\\' . $name, 'not supported', $at, new Row($args)), 'ord', null];
@@ -1489,7 +1582,7 @@ final class TexReader
     /** @return list<MathNote> the notes in a cell that has nothing else in it */
     private static function lostNotes(Node $n): array
     {
-        if ($n instanceof TexSource) {
+        if ($n instanceof TexSource || $n instanceof Color) {
             return self::lostNotes($n->content);
         }
         if ($n instanceof Fallback) {
@@ -1516,7 +1609,7 @@ final class TexReader
     /** A cell with nothing in it (rule commands that draw nothing do not count). */
     private static function blank(Node $n): bool
     {
-        if ($n instanceof TexSource) {
+        if ($n instanceof TexSource || $n instanceof Color) {
             // An equation number or a color around nothing: the row it stood in is dropped, and the source with it.
             return self::blank($n->content);
         }
@@ -1716,8 +1809,8 @@ final class TexReader
      */
     private function classed(string $class, string $name, int $at): array
     {
-        $arg = $this->parseArgument();
-        $lone = self::lone($arg);
+        $arg = $this->parseArgument(false);
+        [$lone, $rewrap] = self::loneWrapped($arg);
         $char = match (true) {
             $lone instanceof Operator => $lone->char,
             $lone instanceof Identifier => $lone->name,
@@ -1728,9 +1821,50 @@ final class TexReader
             return [$this->note(NoteLevel::Approximated, '\\' . $name, 'the class applies to a single symbol only', $at, $arg), $class === 'op' ? 'op' : 'ord', null];
         }
         [$l, $r] = TexClass::SPACING[$class];
+        // A large operator already is an op atom: \mathop{\int} spaces as \int does, with the dictionary's spacing.
+        if ($class === 'op' && $lone instanceof Operator && $lone->lspace === null && $lone->rspace === null && $lone->isLargeop(OperatorDictionary::FORM_PREFIX)) {
+            return [$rewrap($lone), 'op', null];
+        }
         $spaced = $lone instanceof Operator ? $this->withOp($lone, lspace: (float) $l, rspace: (float) $r) : new Operator($char, lspace: (float) $l, rspace: (float) $r);
 
-        return [$spaced, $class === 'op' && $spaced->isLargeop(OperatorDictionary::FORM_PREFIX) ? 'op' : 'ord', null];
+        // The color (and the source that spells it) around the symbol survives the class.
+        return [$rewrap($spaced), $class === 'op' && $spaced->isLargeop(OperatorDictionary::FORM_PREFIX) ? 'op' : 'ord', null];
+    }
+
+    /**
+     * lone() that also sees through TexSource and Color, with a closure that puts those wrappers back around a node built from the symbol.
+     * A Fallback is a wrapper too, so the note it carries survives.
+     *
+     * @return array{Node, \Closure(Node): Node}
+     */
+    private static function loneWrapped(Node $n): array
+    {
+        $wrappers = [];
+        while (true) {
+            if ($n instanceof Row && count($n->children) === 1) {
+                $n = $n->children[0];
+            } elseif ($n instanceof Fallback && $n->content !== null) {
+                $wrappers[] = $n;
+                $n = $n->content;
+            } elseif ($n instanceof TexSource || $n instanceof Color) {
+                $wrappers[] = $n;
+                $n = $n->content;
+            } else {
+                break;
+            }
+        }
+
+        return [$n, static function (Node $inner) use ($wrappers): Node {
+            foreach (array_reverse($wrappers) as $w) {
+                $inner = match (true) {
+                    $w instanceof Color => new Color($inner, $w->color, $w->inline),
+                    $w instanceof Fallback => new Fallback($inner, $w->note),
+                    default => new TexSource($inner, $w->tex, $w->close),
+                };
+            }
+
+            return $inner;
+        }];
     }
 
     /** The one node a Row or Fallback wraps, or the node itself. */
@@ -1753,7 +1887,7 @@ final class TexReader
         $this->c->skipSp();
         $save = $this->font;
         $this->font = $style;
-        $node = $this->parseArgument();
+        $node = $this->parseArgument(false);
         $this->font = $save;
 
         return $node;
@@ -1960,10 +2094,69 @@ final class TexReader
         };
     }
 
-    /** A color argument reduced to the characters a color name or hex code has, so it can be written back as TeX. */
-    private static function colorName(string $raw): string
+    /**
+     * The argument of \color or \textcolor: an optional `[model]` (letters only) and the group. Returns the spelling as
+     * written, padding included (`[HTML]{2350FF}`), or `{}` when the group holds a character or markup a color cannot
+     * have; the `#rrggbb` value, or null when rejected; and the spec the note names.
+     *
+     * @return array{string, ?string, string}
+     */
+    private function colorArg(): array
     {
-        return preg_replace('/[^A-Za-z0-9#.,!:-]/', '', $raw) ?? '';
+        $model = null;
+        $i = $this->c->p;
+        while (($this->c->t[$i][0] ?? '') === 'sp') {
+            $i++;
+        }
+        if (($this->c->t[$i][0] ?? '') === 'ch' && $this->c->t[$i][1] === '[') {
+            $name = '';
+            for ($j = $i + 1; ($this->c->t[$j][0] ?? '') === 'ch' && ctype_alpha($this->c->t[$j][1]); $j++) {
+                $name .= $this->c->t[$j][1];
+            }
+            if ($name !== '' && ($this->c->t[$j][0] ?? '') === 'ch' && $this->c->t[$j][1] === ']') {
+                $model = $name;
+                $this->c->p = $j + 1;
+            }
+        }
+        [$from, $to] = $this->groupSpan();
+        $raw = trim($this->c->source($from, $to));
+        $padded = $this->c->rawGroup(true);
+        $spec = trim($padded);
+        $prefix = $model === null ? '' : '[' . $model . ']';
+        if ($raw !== $spec || preg_match('/[^A-Za-z0-9#.,!:\- ]/u', $spec) !== 0) {
+            // A character or markup TeX cannot read in a color name: reject it, never write back a changed color.
+            // Written as an empty spec, which reads back rejected too; the note shows the spelling with each such
+            // character as `?`.
+            return [$prefix . '{}', null, Colors::masked($raw)];
+        }
+
+        return [$prefix . '{' . $padded . '}', Colors::tex($spec, $model), $spec];
+    }
+
+    /**
+     * The token range inside the group (or the one token) at the cursor, without moving the cursor.
+     *
+     * @return array{int, int}
+     */
+    private function groupSpan(): array
+    {
+        $i = $this->c->p;
+        while (($this->c->t[$i][0] ?? '') === 'sp') {
+            $i++;
+        }
+        if (($this->c->t[$i][0] ?? '') !== '{') {
+            return [$i, isset($this->c->t[$i]) ? $i + 1 : $i];
+        }
+        $depth = 1;
+        for ($j = $i + 1; isset($this->c->t[$j]); $j++) {
+            if ($this->c->t[$j][0] === '{') {
+                $depth++;
+            } elseif ($this->c->t[$j][0] === '}' && --$depth === 0) {
+                return [$i + 1, $j];
+            }
+        }
+
+        return [$i + 1, $j];
     }
 
     private function textInGroup(): Node

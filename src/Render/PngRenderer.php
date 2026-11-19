@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Phactorial\Render;
 
+use Phactorial\Colors;
 use Phactorial\Exception\MissingExtension;
 use Phactorial\Font\Font;
 use Phactorial\Layout\Box;
@@ -110,7 +111,16 @@ final class PngRenderer
         $draw->setFillOpacity(max(0.0, min(1.0, $this->opacity)));
         $draw->setStrokeOpacity(0.0);
         $draw->setStrokeWidth(0.0);
-        $box->each(function (DisplayItem $item, float $dx, float $dy) use ($draw, $f, $ox, $oy, $upem): void {
+        $base = new \ImagickPixel($this->color);
+        $fill = null;
+        $box->eachColored(function (DisplayItem $item, float $dx, float $dy, ?string $itemColor) use ($draw, $f, $ox, $oy, $upem, $base, &$fill): void {
+            if ($item instanceof Glyph || $item instanceof Rule) {
+                $color = $itemColor !== null && Colors::isHex($itemColor) ? $itemColor : null;
+                if ($color !== $fill) {
+                    $draw->setFillColor($color === null ? $base : new \ImagickPixel($color));
+                    $fill = $color;
+                }
+            }
             if ($item instanceof Rule) {
                 $x = $ox + ($dx + $item->x) * $f;
                 $y = $oy + ($dy + $item->y) * $f;

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Phactorial\Render;
 
+use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fenced;
+use Phactorial\Node\Forms;
 use Phactorial\Node\Fraction;
 use Phactorial\Node\Grid;
 use Phactorial\Node\Identifier;
@@ -61,7 +63,7 @@ final class TextWriter
             $n instanceof Space => $n->em >= 0.15 ? ' ' : '',
             $n instanceof Phantom => '',
             $n instanceof Row => self::row($n),
-            $n instanceof DisplayStyle, $n instanceof TexSource => self::node($n->content),
+            $n instanceof DisplayStyle, $n instanceof TexSource, $n instanceof Color => self::node($n->content),
             $n instanceof Fallback => $n->content === null ? '' : self::node($n->content),
             default => throw new \InvalidArgumentException('Unknown node ' . $n::class),
         };
@@ -103,7 +105,10 @@ final class TextWriter
         $forms = $r->forms();
         $out = '';
         $prev = null;
-        foreach ($r->children as $i => $child) {
+        // Whether the last thing written was an operator's trailing space, or an opening fence.
+        $afterPad = false;
+        $afterOpen = false;
+        foreach ($r->nodes() as $i => $child) {
             $op = Fallback::unwrap($child);
             if ($prev !== null && self::isArrowStack(Fallback::unwrap($prev)) && $op instanceof Space && $op->em >= 0.15) {
                 // The arrow has set off its right side already.
@@ -111,12 +116,31 @@ final class TextWriter
 
                 continue;
             }
+            if ($op instanceof Space && $op->em >= 0.15 && str_ends_with($out, ' ')) {
+                // The space is already written, by an operator or an earlier space.
+                $prev = $child;
+
+                continue;
+            }
+            $padded = false;
+            $opens = false;
             if ($op instanceof Operator) {
+                $bar = Forms::isBar($op->char);
+                $closes = OperatorDictionary::isClosing($op->char) || ($bar && $forms[$i] === OperatorDictionary::FORM_POSTFIX);
+                if ($closes && $afterPad) {
+                    // The relation before a closing fence has written its trailing space: the fence takes none.
+                    $out = substr($out, 0, -1);
+                }
                 $out .= match (true) {
                     $forms[$i] === OperatorDictionary::FORM_INFIX && ($op->char === ',' || $op->char === ';') => $op->char . ' ',
-                    $forms[$i] === OperatorDictionary::FORM_INFIX => ' ' . $op->char . ' ',
+                    // A fence takes no padding, wherever its form fell.
+                    OperatorDictionary::isOpening($op->char) || $closes => $op->char,
+                    // An operator right after another one finds the space already written; after an opening fence there is none to write.
+                    $forms[$i] === OperatorDictionary::FORM_INFIX => ($afterOpen || str_ends_with($out, ' ') ? '' : ' ') . $op->char . ' ',
                     default => $op->char,
                 };
+                $padded = $forms[$i] === OperatorDictionary::FORM_INFIX && ! $closes && ! OperatorDictionary::isOpening($op->char) && $op->char !== ',' && $op->char !== ';';
+                $opens = OperatorDictionary::isOpening($op->char) || ($bar && $forms[$i] === OperatorDictionary::FORM_PREFIX);
             } elseif (self::isArrowStack($op)) {
                 // A reaction arrow with its labels is a relation: set off by spaces, as the operator form is.
                 $out .= (str_ends_with($out, ' ') ? '' : ' ') . self::node($child) . ' ';
@@ -132,6 +156,8 @@ final class TextWriter
                 }
                 $out .= $piece;
             }
+            $afterPad = $padded;
+            $afterOpen = $opens;
             $prev = $child;
         }
 
@@ -153,7 +179,7 @@ final class TextWriter
             $n instanceof Fraction => ! $n->bar,
             $n instanceof Text => preg_match('/\s/u', $n->text) !== 1,
             $n instanceof Fallback => $n->content !== null && self::atom($n->content),
-            $n instanceof TexSource => self::atom($n->content),
+            $n instanceof TexSource, $n instanceof Color => self::atom($n->content),
             $n instanceof Row => count($n->children) === 1 && self::atom($n->children[0]),
             default => false,
         };

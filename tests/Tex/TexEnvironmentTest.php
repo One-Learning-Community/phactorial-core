@@ -167,13 +167,14 @@ final class TexEnvironmentTest extends TestCase
     public function test_color_and_decorations(): void
     {
         foreach (['\color{red}{x}', '\textcolor{red}{x}', '{\color{red} x}'] as $tex) {
-            $n = self::notes($tex);
-            self::assertCount(1, $n, $tex);
-            self::assertSame(NoteLevel::Approximated, $n[0]->level);
-            self::assertSame('color is not drawn', $n[0]->reason);
+            self::assertSame([], self::notes($tex), $tex);
         }
         TreeAssert::assertSameTree(Math::row('x'), Fallback::unwrap(Math::tex('\textcolor{red}{x}')));
-        self::assertSame('\textcolor', self::notes('\textcolor{red}{x}')[0]->element);
+        $n = self::notes('\textcolor{red!50}{x}');
+        self::assertCount(1, $n);
+        self::assertSame(NoteLevel::Approximated, $n[0]->level);
+        self::assertSame('\textcolor', $n[0]->element);
+        self::assertSame('unknown color `red!50`; drawn in the default color', $n[0]->reason);
         foreach (['\boxed{x}', '\fbox{x}', '\cancel{x}', '\bcancel{x}', '\xcancel{x}', '\sout{x}'] as $tex) {
             $n = self::notes($tex);
             self::assertCount(1, $n, $tex);

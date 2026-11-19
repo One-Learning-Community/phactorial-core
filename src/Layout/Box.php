@@ -65,6 +65,13 @@ final class Box
     public float $trail = 0.0;
 
     /**
+     * The fill every glyph and rule below this box takes unless a box nearer to it sets its own, `#rrggbb`; null leaves them as they are.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public ?string $color = null;
+
+    /**
      * @param float $italic italics correction of the last glyph, in points (used to place superscripts)
      * @param bool $simple true for a single token (letter, digit run, operator): scripts then ignore the base's height
      *
@@ -99,17 +106,43 @@ final class Box
      */
     public function each(callable $visit): void
     {
-        $this->walk($visit, 0.0, 0.0);
+        $this->walk($visit, 0.0, 0.0, null, true);
     }
 
-    /** @param callable(DisplayItem, float, float): void $fn */
-    private function walk(callable $fn, float $dx, float $dy): void
+    /**
+     * each() for a renderer: the items are passed as laid out, uncopied, with the fill that applies to them as a fourth
+     * argument: the item's own color, else the nearest box color above it (null for no color, or for an item that is
+     * neither a glyph nor a rule). Draws the same picture as each() without a new item for every colored one.
+     *
+     * @param callable(DisplayItem, float, float, ?string): void $visit
+     *
+     * @internal Engine detail, not public API.
+     */
+    public function eachColored(callable $visit): void
     {
+        $this->walk($visit, 0.0, 0.0, null, false);
+    }
+
+    /**
+     * The one walk behind each() and eachColored(): $paint copies a glyph or rule that takes its color from a box above it,
+     * which each() hands over; without it the item is passed as it is, with its resolved color as a fourth argument.
+     *
+     * @param callable $fn
+     */
+    private function walk(callable $fn, float $dx, float $dy, ?string $color, bool $paint): void
+    {
+        $color = $this->color ?? $color;
         foreach ($this->entries as $e) {
             if (is_array($e)) {
-                $e[0]->walk($fn, $dx + $e[1], $dy + $e[2]);
+                $e[0]->walk($fn, $dx + $e[1], $dy + $e[2], $color, $paint);
+            } elseif ($paint) {
+                if ($color !== null && ($e instanceof Glyph || $e instanceof Rule) && $e->color === null) {
+                    $fn($e->withColor($color), $dx, $dy);
+                } else {
+                    $fn($e, $dx, $dy);
+                }
             } else {
-                $fn($e, $dx, $dy);
+                $fn($e, $dx, $dy, $e instanceof Glyph || $e instanceof Rule ? $e->color ?? $color : null);
             }
         }
     }

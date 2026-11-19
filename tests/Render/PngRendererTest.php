@@ -11,6 +11,7 @@ use Phactorial\Layout\Rule;
 use Phactorial\Math;
 use Phactorial\Render\PngRenderer;
 use Phactorial\Render\SvgRenderer;
+use Phactorial\Tex\TexReader;
 use PHPUnit\Framework\TestCase;
 
 final class PngRendererTest extends TestCase
@@ -87,6 +88,80 @@ final class PngRendererTest extends TestCase
         $half = self::image((new PngRenderer($font, '#ff0000', 0.5))->render($box))->getImagePixelColor(10, 5);
         self::assertEqualsWithDelta(0.5, $half->getColorValue(\Imagick::COLOR_ALPHA), 0.01);
         self::assertSame(1.0, $half->getColorValue(\Imagick::COLOR_RED));
+    }
+
+    public function test_a_colored_fraction_bar_is_red_and_nothing_keeps_the_renderer_color(): void
+    {
+        $box = Math::layout(TexReader::read('\\textcolor{#ff0000}{\\frac{a}{b}}')->node, 12.0);
+        $bar = null;
+        $box->each(static function ($item, float $dx, float $dy) use (&$bar): void {
+            if ($item instanceof Rule) {
+                $bar = [$dx + $item->x, $dy + $item->y, $item->w, $item->h];
+            }
+        });
+        self::assertNotNull($bar);
+        $im = self::image((new PngRenderer(Math::stixTwoMath(), '#0000ff'))->render($box, 0.0, 8.0));
+        // Pixels at scale 8: the band the bar covers, inset by one pixel on every side.
+        $x = (int) ceil($bar[0] * 8) + 1;
+        $y = (int) ceil(($box->ascent + $bar[1]) * 8) + 1;
+        $w = (int) floor($bar[2] * 8) - 2;
+        $h = max(1, (int) floor($bar[3] * 8) - 2);
+        self::assertSame($w * $h, self::countInk($im, 1.0, 0.0, $x, $y, $w, $h), 'the bar is solid red');
+        self::assertSame(0, self::countInk($im, 0.0, 1.0, 0, 0, $im->getImageWidth(), $im->getImageHeight()), 'nothing keeps the renderer color');
+    }
+
+    public function test_uncolored_ink_after_a_colored_item_returns_to_the_renderer_color(): void
+    {
+        $box = new Box(30.0, 5.0, 0.0);
+        $box->add(new Rule(0.0, -5.0, 10.0, 5.0, '#ff0000'));
+        $box->add(new Rule(15.0, -5.0, 10.0, 5.0));
+        $im = self::image((new PngRenderer(Math::stixTwoMath(), '#0000ff'))->render($box, 0.0, 1.0));
+        self::assertSame(50, self::countInk($im, 1.0, 0.0, 0, 0, 10, 5));
+        self::assertSame(50, self::countInk($im, 0.0, 1.0, 15, 0, 10, 5));
+        self::assertSame(0, self::countInk($im, 1.0, 0.0, 15, 0, 10, 5));
+    }
+
+    public function test_a_glyph_after_a_colored_glyph_returns_to_the_renderer_color(): void
+    {
+        $box = Math::layout(TexReader::read('\\textcolor{#ff0000}{x}y')->node, 12.0);
+        $xs = [];
+        $box->each(static function ($item, float $dx) use (&$xs): void {
+            if ($item instanceof Glyph) {
+                $xs[] = $dx + $item->x;
+            }
+        });
+        self::assertCount(2, $xs);
+        $scale = 4.0;
+        $im = self::image((new PngRenderer(Math::stixTwoMath(), '#0000ff'))->render($box, 0.0, $scale));
+        $from = (int) ceil($xs[1] * $scale);
+        $w = $im->getImageWidth() - $from;
+        self::assertGreaterThan(0, self::countInk($im, 0.0, 1.0, $from, 0, $w, $im->getImageHeight()), 'y is blue');
+        self::assertSame(0, self::countInk($im, 1.0, 0.0, $from, 0, $w, $im->getImageHeight()), 'no red in the region of y');
+        self::assertGreaterThan(0, self::countInk($im, 1.0, 0.0, 0, 0, $from, $im->getImageHeight()), 'x is red');
+    }
+
+    public function test_color_with_opacity_keeps_the_opacity(): void
+    {
+        $box = new Box(10.0, 5.0, 0.0);
+        $box->add(new Rule(0.0, -5.0, 10.0, 5.0, '#ff0000'));
+        $p = self::image((new PngRenderer(Math::stixTwoMath(), '#0000ff', 0.5))->render($box))->getImagePixelColor(10, 5);
+        self::assertEqualsWithDelta(0.5, $p->getColorValue(\Imagick::COLOR_ALPHA), 0.01);
+        self::assertSame(1.0, $p->getColorValue(\Imagick::COLOR_RED));
+    }
+
+    /** The pixels in the region that are opaque with exactly the given red and blue channels (green 0). */
+    private static function countInk(\Imagick $im, float $red, float $blue, int $x, int $y, int $w, int $h): int
+    {
+        $px = $im->exportImagePixels($x, $y, $w, $h, 'RGBA', \Imagick::PIXEL_CHAR);
+        $want = [(int) round($red * 255), 0, (int) round($blue * 255), 255];
+        $n = 0;
+        for ($i = 0; $i + 3 < count($px); $i += 4) {
+            if ([$px[$i], $px[$i + 1], $px[$i + 2], $px[$i + 3]] === $want) {
+                $n++;
+            }
+        }
+
+        return $n;
     }
 
     public function test_a_scaled_glyph_draws_taller_or_wider(): void

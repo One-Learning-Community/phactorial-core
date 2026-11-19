@@ -12,6 +12,7 @@ use Phactorial\Node\UnderOver;
 use Phactorial\Render\OmmlWriter;
 use Phactorial\Render\RunFormat;
 use Phactorial\Styles;
+use Phactorial\Tex\TexReader;
 use Phactorial\Tests\Fixtures;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -19,6 +20,13 @@ use PHPUnit\Framework\TestCase;
 final class OmmlWriterTest extends TestCase
 {
     private const NS = 'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+
+    private const RED = '<w:color w:val="FF0000"/>';
+
+    private static function tex(string $tex, ?RunFormat $format = null): string
+    {
+        return OmmlWriter::oMath(TexReader::read($tex)->node, $format);
+    }
 
     /** @return iterable<string, array{string}> */
     public static function fixtureNames(): iterable
@@ -128,9 +136,12 @@ final class OmmlWriterTest extends TestCase
         $xml = OmmlWriter::oMath(Math::row('x +', Math::frac('1', Math::text('hi')), Math::sub('y', '2')), new RunFormat('C0FFEE', 28));
         $runs = substr_count($xml, '<m:r>');
         self::assertGreaterThan(5, $runs);
-        self::assertSame($runs, substr_count($xml, '<w:color w:val="C0FFEE"/>'));
-        self::assertSame($runs, substr_count($xml, '<w:sz w:val="28"/><w:szCs w:val="28"/>'));
-        self::assertSame($runs, substr_count($xml, '<w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math" w:cs="Cambria Math"/>'));
+        // Each run, and each object's ctrlPr (the fraction's and the subscript's), carries the format.
+        $props = $runs + substr_count($xml, '<m:ctrlPr>');
+        self::assertSame(2, substr_count($xml, '<m:ctrlPr>'));
+        self::assertSame($props, substr_count($xml, '<w:color w:val="C0FFEE"/>'));
+        self::assertSame($props, substr_count($xml, '<w:sz w:val="28"/><w:szCs w:val="28"/>'));
+        self::assertSame($props, substr_count($xml, '<w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math" w:cs="Cambria Math"/>'));
     }
 
     public function test_run_format_oMath_parses(): void
@@ -455,5 +466,176 @@ final class OmmlWriterTest extends TestCase
             self::assertStringNotContainsString('<m:limLow>', $xml, $tex);
             self::assertStringContainsString('>x<', $xml, $tex);
         }
+    }
+
+    public function test_colored_runs_carry_the_color_and_others_none(): void
+    {
+        $xml = self::tex('a\\textcolor{red}{x}b');
+        self::assertSame(1, substr_count($xml, self::RED));
+        self::assertMatchesRegularExpression('#' . preg_quote(self::RED, '#') . '</w:rPr><m:t xml:space="preserve">x<#', $xml);
+    }
+
+    public function test_a_color_inside_the_format_color_wins(): void
+    {
+        $xml = self::tex('a\\textcolor{red}{x}', new RunFormat('0000FF', 24));
+        self::assertStringContainsString('<w:color w:val="0000FF"/><w:sz w:val="24"/>', $xml);
+        self::assertMatchesRegularExpression('#<w:color w:val="FF0000"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr><m:t xml:space="preserve">x<#', $xml);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function propertyElements(): iterable
+    {
+        yield 'fraction' => ['\\frac{a}{b}', 'fPr'];
+        yield 'barless fraction' => ['\\atop', 'fPr'];
+        yield 'root' => ['\\sqrt{a}', 'radPr'];
+        yield 'root with index' => ['\\sqrt[3]{a}', 'radPr'];
+        yield 'delimiters' => ['\\left(a\\right)', 'dPr'];
+        yield 'nary' => ['\\sum_a^b x', 'naryPr'];
+        yield 'accent' => ['\\hat{x}', 'accPr'];
+        yield 'bar' => ['\\overline{x}', 'barPr'];
+        yield 'brace' => ['\\overbrace{x}', 'groupChrPr'];
+        yield 'superscript' => ['x^2', 'sSupPr'];
+        yield 'subscript' => ['x_2', 'sSubPr'];
+        yield 'both scripts' => ['x_2^3', 'sSubSupPr'];
+        yield 'prescripts' => ['{}^2x', 'sPrePr'];
+        yield 'limit above' => ['\\overset{a}{x}', 'limUppPr'];
+        yield 'limit below' => ['\\underset{a}{x}', 'limLowPr'];
+        yield 'arrow' => ['\\xrightarrow{a}', 'groupChrPr'];
+        yield 'equation array' => ['\\begin{aligned}a&=b\\end{aligned}', 'eqArrPr'];
+        yield 'matrix' => ['\\begin{matrix}a&b\\end{matrix}', 'mPr'];
+        yield 'phantom' => ['\\phantom{a}', 'phantPr'];
+    }
+
+    #[DataProvider('propertyElements')]
+    public function test_a_colored_object_ends_its_properties_with_ctrlpr(string $tex, string $pr): void
+    {
+        $ctrl = '<m:ctrlPr><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math" w:cs="Cambria Math"/>' . self::RED . '</w:rPr></m:ctrlPr>';
+        $xml = self::tex('\\textcolor{red}{' . $tex . '}');
+        self::assertStringContainsString($ctrl . '</m:' . $pr . '>', $xml);
+        self::assertStringNotContainsString('<m:ctrlPr>', self::tex($tex), 'no ctrlPr when uncolored');
+    }
+
+    public function test_the_format_color_reaches_the_properties_too(): void
+    {
+        self::assertStringContainsString('<m:fPr><m:ctrlPr>', self::tex('\\frac{a}{b}', new RunFormat('FF0000')));
+        self::assertStringNotContainsString('<m:ctrlPr>', self::tex('\\frac{a}{b}', new RunFormat(null, 24)));
+    }
+
+    public function test_a_barless_fraction_keeps_its_type_before_ctrlpr(): void
+    {
+        self::assertMatchesRegularExpression('#<m:fPr><m:type m:val="noBar"/><m:ctrlPr>#', self::tex('\\textcolor{red}{a\\atop b}'));
+    }
+
+    public function test_inline_color_colors_each_item(): void
+    {
+        $xml = self::tex('a{\\color{red} b+c}d');
+        self::assertSame(3, substr_count($xml, self::RED));
+        self::assertMatchesRegularExpression('#' . preg_quote(self::RED, '#') . '</w:rPr><m:t xml:space="preserve">b<#', $xml);
+        self::assertDoesNotMatchRegularExpression('#' . preg_quote(self::RED, '#') . '</w:rPr><m:t xml:space="preserve">[ad]<#', $xml);
+    }
+
+    public function test_the_innermost_color_wins_over_an_inline_one(): void
+    {
+        $xml = self::tex('{\\color{red} a\\textcolor{blue}{b}}');
+        self::assertSame(1, substr_count($xml, self::RED));
+        self::assertSame(1, substr_count($xml, '<w:color w:val="0000FF"/>'));
+    }
+
+    public function test_an_inline_colored_nary_keeps_its_grouping(): void
+    {
+        $xml = self::tex('{\\color{red} \\sum_a^b x}y');
+        self::assertStringContainsString('<m:nary>', $xml);
+        self::assertMatchesRegularExpression('#<m:naryPr>.*' . preg_quote(self::RED, '#') . '</w:rPr></m:ctrlPr></m:naryPr>.*<m:e><m:r>.*x<.*</m:e></m:nary>#s', $xml);
+        self::assertDoesNotMatchRegularExpression('#' . preg_quote(self::RED, '#') . '[^>]*</w:rPr><m:t xml:space="preserve">y<#', $xml);
+    }
+
+    public function test_a_colored_nary_carries_its_color(): void
+    {
+        $xml = self::tex('\\textcolor{red}{\\sum}_a^b x');
+        self::assertMatchesRegularExpression('#<m:naryPr>.*' . preg_quote(self::RED, '#') . '</w:rPr></m:ctrlPr></m:naryPr>#s', $xml);
+    }
+
+    public function test_a_colored_middle_stays_a_colored_run(): void
+    {
+        $xml = self::tex('\\left(a\\textcolor{red}{\\middle|}b\\right)');
+        self::assertStringNotContainsString('m:sepChr', $xml);
+        self::assertMatchesRegularExpression('#' . preg_quote(self::RED, '#') . '</w:rPr><m:t xml:space="preserve">\\|<#', $xml);
+    }
+
+    public function test_uncolored_middles_still_use_sepchr(): void
+    {
+        self::assertStringContainsString('<m:sepChr m:val="|"/>', self::tex('\\left(a\\middle|b\\right)'));
+        self::assertStringContainsString('<m:sepChr m:val="|"/>', self::tex('\\textcolor{red}{\\left(a\\middle|b\\right)}'));
+    }
+
+    public function test_an_inline_colored_fence_content_keeps_its_color_across_separators(): void
+    {
+        $xml = self::tex('\\left(\\color{red} a\\middle|b\\right)');
+        self::assertSame(3, substr_count($xml, self::RED . '</w:rPr><m:t'));
+        self::assertStringNotContainsString('m:sepChr', $xml);
+    }
+
+    /** @return iterable<string, array{string, string, string}> */
+    public static function coloredGlyphs(): iterable
+    {
+        yield 'bar over' => ['\\overset{\\textcolor{red}{¯}}{x}', 'barPr', 'm:bar'];
+        yield 'brace over' => ['\\overset{\\textcolor{red}{⏞}}{x}', 'groupChrPr', 'm:groupChr'];
+        yield 'brace under' => ['\\underset{\\textcolor{red}{⏟}}{x}', 'groupChrPr', 'm:groupChr'];
+        yield 'bar under' => ['\\underset{\\textcolor{red}{¯}}{x}', 'barPr', 'm:bar'];
+    }
+
+    #[DataProvider('coloredGlyphs')]
+    public function test_a_colored_glyph_colors_its_own_object_only(string $tex, string $pr, string $obj): void
+    {
+        $xml = self::tex($tex);
+        self::assertMatchesRegularExpression('#<' . $obj . '><m:' . $pr . '>.*' . preg_quote(self::RED, '#') . '</w:rPr></m:ctrlPr></m:' . $pr . '>#sU', $xml);
+        self::assertDoesNotMatchRegularExpression('#' . preg_quote(self::RED, '#') . '</w:rPr><m:t xml:space="preserve">x<#', $xml);
+    }
+
+    public function test_a_colored_accent_glyph(): void
+    {
+        $over = new UnderOver(new Identifier('x'), null, new \Phactorial\Node\Color(new Operator('^'), '#ff0000'), true);
+        $xml = OmmlWriter::oMath($over);
+        self::assertSame(1, substr_count($xml, self::RED));
+        self::assertMatchesRegularExpression('#<m:acc><m:accPr>.*' . preg_quote(self::RED, '#') . '</w:rPr></m:ctrlPr></m:accPr>#sU', $xml);
+    }
+
+    public function test_a_colored_whole_nary_colors_limits_not_the_body(): void
+    {
+        $xml = self::tex('\\textcolor{red}{\\sum_a^b} x');
+        self::assertMatchesRegularExpression('#<m:sub><m:r><w:rPr>[^>]*/>' . preg_quote(self::RED, '#') . '#', $xml);
+        self::assertMatchesRegularExpression('#<m:e><m:r><w:rPr><w:rFonts[^>]*/></w:rPr><m:t xml:space="preserve">x<#', $xml);
+    }
+
+    public function test_an_invalid_color_node_is_never_written(): void
+    {
+        $color = (new \ReflectionClass(\Phactorial\Node\Color::class))->newInstanceWithoutConstructor();
+        foreach (['color' => 'red"><script>', 'content' => new \Phactorial\Node\Fraction(new Identifier('a'), new Identifier('b')), 'inline' => false] as $prop => $value) {
+            (new \ReflectionProperty(\Phactorial\Node\Color::class, $prop))->setValue($color, $value);
+        }
+        $xml = OmmlWriter::oMath($color);
+        self::assertStringNotContainsString('w:color', $xml);
+        self::assertStringNotContainsString('ctrlPr', $xml);
+    }
+
+    public function test_a_colored_stretchy_arrow_keeps_its_group_character(): void
+    {
+        $xml = self::tex('\\textcolor{red}{\\xrightarrow{f}}');
+        self::assertStringContainsString('<m:groupChr>', $xml);
+        self::assertMatchesRegularExpression('#<m:groupChrPr>.*' . preg_quote(self::RED, '#') . '</w:rPr></m:ctrlPr></m:groupChrPr>#sU', $xml);
+        $base = new \Phactorial\Node\Color(new Operator('→'), '#ff0000');
+        $xml = OmmlWriter::oMath(new UnderOver($base, null, new Identifier('f')));
+        self::assertStringContainsString('<m:groupChr>', $xml);
+        self::assertSame(1, substr_count($xml, self::RED));
+        self::assertDoesNotMatchRegularExpression('#' . preg_quote(self::RED, '#') . '</w:rPr><m:t xml:space="preserve">f<#', $xml);
+        self::assertMatchesRegularExpression('#<m:groupChrPr>.*' . preg_quote(self::RED, '#') . '</w:rPr></m:ctrlPr></m:groupChrPr>#sU', $xml);
+    }
+
+    public function test_the_innermost_color_wins_on_a_limit_glyph(): void
+    {
+        $glyph = new \Phactorial\Node\Color(new \Phactorial\Node\Row([new \Phactorial\Node\Color(new Operator('⏞'), '#0000ff')]), '#ff0000');
+        $xml = OmmlWriter::oMath(new UnderOver(new Identifier('x'), null, $glyph));
+        self::assertMatchesRegularExpression('#<m:groupChrPr>.*<w:color w:val="0000FF"/></w:rPr></m:ctrlPr></m:groupChrPr>#sU', $xml);
+        self::assertStringNotContainsString('FF0000', $xml);
     }
 }

@@ -130,8 +130,11 @@ final class TexCursor
         return false;
     }
 
-    /** The characters of a group, as plain text (or the one character that follows). */
-    public function rawGroup(): string
+    /**
+     * The characters of a group, as plain text (or the one character that follows). With $params a `#1` the lexer made a
+     * parameter token of is kept as its text, so a hex color `#00ff00` reads whole.
+     */
+    public function rawGroup(bool $params = false): string
     {
         $this->closed = true;
         $this->skipSp();
@@ -157,6 +160,8 @@ final class TexCursor
                 break;
             } elseif ($t[0] === 'ch' || $t[0] === 'sp') {
                 $s .= $t[1];
+            } elseif ($params && $t[0] === 'param') {
+                $s .= '#' . $t[1];
             }
         }
 

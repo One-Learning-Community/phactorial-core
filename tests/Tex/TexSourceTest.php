@@ -52,7 +52,7 @@ final class TexSourceTest extends TestCase
     {
         $t = Math::tex('\frac{\boxed{a}}{\color{red} b}');
         $tex = TexWriter::write($t);
-        self::assertSame('\frac{\boxed{a}}{{\color{red} b}}', $tex);
+        self::assertSame('\frac{\boxed{a}}{\color{red} b}', $tex);
         TreeAssert::assertSameTree($t, Math::tex($tex));
         self::assertSame($tex, TexWriter::write(Math::tex($tex)));
     }

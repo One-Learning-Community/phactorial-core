@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Phactorial\Tests\Render;
 
 use Phactorial\Math;
+use Phactorial\Node\Color;
+use Phactorial\Node\Identifier;
 use Phactorial\Node\Node;
 use Phactorial\Node\Operator;
+use Phactorial\Node\Row;
 use Phactorial\Node\UnderOver;
 use Phactorial\Render\TextWriter;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -38,6 +41,16 @@ final class TextWriterTest extends TestCase
         yield 'single token script without parens' => [Math::sup('x', Math::text('max')), 'x^max'];
         yield 'function name' => [Math::row('sin', 'x'), 'sin x'];
         yield 'middle bar' => [Math::fenced('{', '}', 'x', Math::middle('|'), Math::frac('a', 'b')), '{x | a/b}'];
+        yield 'adjacent infix operators' => [Math::tex('a := b'), 'a : = b'];
+        yield 'adjacent relations' => [Math::tex('x \\sim \\sim b'), 'x ∼ ∼ b'];
+        yield 'logic run' => [Math::tex('\\vdash \\models \\therefore'), '⊢ ⊨ ∴'];
+        yield 'fence after a factorial' => [Math::tex('n!(n-k)!'), 'n!(n − k)!'];
+        yield 'call' => [Math::tex('P(x)'), 'P(x)'];
+        yield 'relation before a closing fence' => [Math::tex('\\{ x \\mid = \\}'), '{x ∣ =}'];
+        yield 'relation between bars' => [Math::tex('\\| = \\|'), '‖=‖'];
+        yield 'relation after an opening fence' => [Math::tex('\\{ = b'), '{= b'];
+        yield 'relation before a lone closing fence' => [Math::tex('a = \\}'), 'a =}'];
+        yield 'relation last in parentheses' => [Math::tex('(a =)'), '(a =)'];
         yield 'plain root' => [Math::sqrt('2'), '√2'];
     }
 
@@ -101,5 +114,24 @@ final class TextWriterTest extends TestCase
         self::assertSame('y _(a + b)x', TextWriter::write(Math::tex('y{}_{a+b}x')));
         // The compact form reads as itself and needs no separator.
         self::assertSame('y¹⁴C', TextWriter::write(Math::tex('y{}^{14}C')));
+    }
+
+    public function test_inline_color_before_an_infix_operator(): void
+    {
+        $red = new Color(new Row([new Identifier('a'), new Identifier('b')]), '#ff0000', true);
+        self::assertSame('ab - c', TextWriter::write(new Row([$red, new Operator('-'), new Identifier('c')])));
+    }
+
+    public function test_inline_color_containing_an_infix_operator(): void
+    {
+        $red = new Color(new Row([new Operator('+'), new Identifier('b')]), '#ff0000', true);
+        self::assertSame('a + b', TextWriter::write(new Row([new Identifier('a'), $red])));
+    }
+
+    public function test_a_space_next_to_the_space_an_operator_wrote_is_not_doubled(): void
+    {
+        self::assertSame('a = b', TextWriter::write(Math::tex('a\,=\,b')));
+        self::assertSame('a + b', TextWriter::write(Math::tex('a\;+\;b')));
+        self::assertSame('a + b', TextWriter::write(Math::tex('a + b')));
     }
 }

@@ -8,6 +8,7 @@ use Phactorial\Font\Font;
 use Phactorial\Layout\Box;
 use Phactorial\Layout\Context;
 use Phactorial\Mathml\MathmlReader;
+use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fenced;
@@ -401,39 +402,22 @@ final class Math
         return new Grid($cells, $align, 'baseline', true, $gaps, true);
     }
 
-    /** $cell with its leading operator, if the cell starts with one (seen through Fallback and DisplayStyle), given the infix form. */
+    /** $cell with its leading operator, if the cell starts with one (seen through Fallback, DisplayStyle, TexSource and Color), given the infix form. */
     private static function infixLead(Node $cell): Node
     {
-        if ($cell instanceof Fallback && $cell->content !== null) {
-            return new Fallback(self::infixLead($cell->content), $cell->note);
-        }
-        if ($cell instanceof DisplayStyle) {
-            return new DisplayStyle(self::infixLead($cell->content), $cell->display);
-        }
-        if ($cell instanceof TexSource) {
-            return new TexSource(self::infixLead($cell->content), $cell->tex, $cell->close);
-        }
-        if ($cell instanceof Operator) {
-            return new Operator(
-                $cell->char,
-                stretchy: $cell->stretchy,
-                largeop: $cell->largeop,
-                movablelimits: $cell->movablelimits,
-                form: 'infix',
-                lspace: $cell->lspace,
-                rspace: $cell->rspace,
-                minSize: $cell->minSize,
-                maxSize: $cell->maxSize,
-            );
-        }
-        if ($cell instanceof Row && $cell->children !== [] && Fallback::unwrap($cell->children[0]) instanceof Operator) {
-            $children = $cell->children;
-            $children[0] = self::infixLead($children[0]);
+        return Fallback::mapInner($cell, static function (Node $n): Node {
+            if ($n instanceof Operator) {
+                return $n->withForm('infix');
+            }
+            if ($n instanceof Row && $n->children !== [] && Fallback::unwrap($n->children[0]) instanceof Operator) {
+                $children = $n->children;
+                $children[0] = self::infixLead($children[0]);
 
-            return new Row($children);
-        }
+                return new Row($children);
+            }
 
-        return $cell;
+            return $n;
+        });
     }
 
     /**

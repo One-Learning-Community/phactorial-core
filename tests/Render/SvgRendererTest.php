@@ -9,6 +9,7 @@ use Phactorial\Layout\Box;
 use Phactorial\Layout\Glyph;
 use Phactorial\Math;
 use Phactorial\Render\SvgRenderer;
+use Phactorial\Tex\TexReader;
 
 final class SvgRendererTest extends TestCase
 {
@@ -29,6 +30,120 @@ final class SvgRendererTest extends TestCase
         self::assertSame('visible', $root->getAttribute('overflow'));
         self::assertSame('20', $root->getAttribute('width'));
         self::assertSame('14', $root->getAttribute('height'));
+    }
+
+    public function test_a_colored_run_is_one_group_between_uncolored_glyphs(): void
+    {
+        $doc = self::doc('a\textcolor{red}{bc}d');
+        $groups = self::colorGroups($doc);
+        self::assertCount(1, $groups);
+        self::assertSame('#ff0000', $groups[0]->getAttribute('fill'));
+        self::assertSame(2, self::paths($groups[0]));
+        self::assertSame(4, $doc->getElementsByTagName('path')->length);
+        $root = $doc->getElementsByTagName('g')->item(0) ?? self::fail('no root group');
+        self::assertSame(2, self::directPaths($root));
+    }
+
+    public function test_a_colored_fraction_bar_is_inside_the_colored_group(): void
+    {
+        $groups = self::colorGroups(self::doc('\textcolor{red}{\frac{a}{b}}'));
+        self::assertCount(1, $groups);
+        self::assertSame(1, $groups[0]->getElementsByTagName('rect')->length);
+        self::assertSame(2, self::paths($groups[0]));
+    }
+
+    public function test_colored_delimiters_are_inside_the_colored_group(): void
+    {
+        $doc = self::doc('\textcolor{red}{\left(x\right)}');
+        $groups = self::colorGroups($doc);
+        self::assertCount(1, $groups);
+        self::assertSame($doc->getElementsByTagName('path')->length, self::paths($groups[0]));
+        self::assertGreaterThanOrEqual(3, self::paths($groups[0]));
+    }
+
+    public function test_nested_colors_are_three_sibling_groups(): void
+    {
+        $groups = self::colorGroups(self::doc('\textcolor{red}{a\textcolor{blue}{b}c}'));
+        self::assertSame(['#ff0000', '#0000ff', '#ff0000'], array_map(static fn (\DOMElement $g): string => $g->getAttribute('fill'), $groups));
+        foreach ($groups as $g) {
+            self::assertSame(1, self::paths($g));
+        }
+        self::assertSame($groups[0]->parentNode, $groups[1]->parentNode);
+    }
+
+    public function test_glyph_paths_groups_colored_glyphs(): void
+    {
+        $font = Math::stixTwoMath();
+        $x = $font->gid(0x78);
+        $glyphs = [new Glyph($x, 'x', 0.0, 0.0, 12.0), new Glyph($x, 'x', 8.0, 0.0, 12.0, 1.0, 1.0, '#00ff00'), new Glyph($x, 'x', 16.0, 0.0, 12.0, 1.0, 1.0, '#00ff00'), new Glyph($x, 'x', 24.0, 0.0, 12.0)];
+        $doc = new \DOMDocument();
+        self::assertTrue($doc->loadXML((new SvgRenderer($font))->glyphPaths($glyphs, 30.0, 10.0, 4.0)));
+        $groups = self::colorGroups($doc);
+        self::assertCount(1, $groups);
+        self::assertSame('#00ff00', $groups[0]->getAttribute('fill'));
+        self::assertSame(2, self::paths($groups[0]));
+        self::assertSame(2, self::directPaths($doc->getElementsByTagName('g')->item(0) ?? self::fail('no root group')));
+    }
+
+    public function test_a_color_that_is_not_hex_is_drawn_uncolored(): void
+    {
+        $font = Math::stixTwoMath();
+        $bad = ['red', '#FF0000', '#f00', '"/><script/>', '#ff0000 '];
+        foreach ($bad as $color) {
+            $svg = (new SvgRenderer($font))->glyphPaths([new Glyph($font->gid(0x78), 'x', 0.0, 0.0, 12.0, 1.0, 1.0, $color)], 10.0, 10.0, 4.0);
+            $doc = new \DOMDocument();
+            self::assertTrue($doc->loadXML($svg), $color);
+            self::assertCount(0, self::colorGroups($doc), $color);
+            self::assertSame(1, $doc->getElementsByTagName('path')->length);
+        }
+    }
+
+    public function test_opacity_stays_on_the_root_group_with_color(): void
+    {
+        $svg = (new SvgRenderer(Math::stixTwoMath(), '#000000', 0.5))->render(self::box('a\textcolor{red}{b}'));
+        self::assertSame(1, substr_count($svg, 'fill-opacity'));
+        self::assertStringContainsString('<g fill="#ff0000">', $svg);
+    }
+
+    private static function box(string $tex): Box
+    {
+        return Math::layout(TexReader::read($tex)->node, 12.0);
+    }
+
+    private static function doc(string $tex): \DOMDocument
+    {
+        $doc = new \DOMDocument();
+        self::assertTrue($doc->loadXML((new SvgRenderer(Math::stixTwoMath()))->render(self::box($tex))));
+
+        return $doc;
+    }
+
+    /** @return list<\DOMElement> the colored groups, every <g> but the root one */
+    private static function colorGroups(\DOMDocument $doc): array
+    {
+        $out = [];
+        foreach ($doc->getElementsByTagName('g') as $i => $g) {
+            if ($i > 0) {
+                $out[] = $g;
+            }
+        }
+
+        return $out;
+    }
+
+    private static function paths(\DOMElement $g): int
+    {
+        return $g->getElementsByTagName('path')->length;
+    }
+
+    private static function directPaths(\DOMNode $g): int
+    {
+        $n = 0;
+        foreach ($g->childNodes as $c) {
+            $n += $c->nodeName === 'path' ? 1 : 0;
+        }
+
+        return $n;
     }
 
     public function test_a_scaled_glyph_is_drawn_stretched_along_its_axis(): void

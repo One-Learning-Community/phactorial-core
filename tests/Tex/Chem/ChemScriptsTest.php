@@ -52,7 +52,7 @@ final class ChemScriptsTest extends TestCase
     public static function prescripted(): iterable
     {
         yield 'after a bracket' => ['\ce{(^{14}C)}', 'C', '(¹⁴C)'];
-        yield 'after a square bracket' => ['\ce{[^{60}Co(NH3)6]^3+}', 'Co', '[⁶⁰Co ( NH₃)₆]³⁺'];
+        yield 'after a square bracket' => ['\ce{[^{60}Co(NH3)6]^3+}', 'Co', '[⁶⁰Co(NH₃)₆]³⁺'];
         yield 'before a formula' => ['\ce{^{14}CO2}', 'C', '¹⁴CO₂'];
         yield 'both, before a symbol' => ['\ce{^{235}_{92}U + n}', 'U', '²³⁵₉₂U + n'];
     }

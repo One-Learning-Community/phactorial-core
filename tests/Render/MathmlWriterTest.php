@@ -6,8 +6,10 @@ namespace Phactorial\Tests\Render;
 
 use Phactorial\Math;
 use Phactorial\Mathml\MathmlReader;
+use Phactorial\Node\Color;
 use Phactorial\Node\Identifier;
 use Phactorial\Node\Operator;
+use Phactorial\Node\Row;
 use Phactorial\Node\UnderOver;
 use Phactorial\Render\MathmlWriter;
 use Phactorial\Styles;
@@ -238,5 +240,13 @@ final class MathmlWriterTest extends TestCase
             self::assertStringNotContainsString('<mover', $xml, $tex);
             self::assertStringNotContainsString('<munder', $xml, $tex);
         }
+    }
+
+    public function test_inline_color_row_is_spliced_for_forms(): void
+    {
+        $red = new Color(new Row([new Identifier('a'), new Identifier('b')]), '#ff0000', true);
+        $xml = MathmlWriter::write(new Row([$red, new Operator('-'), new Identifier('c')]));
+
+        self::assertStringContainsString('<mrow><mstyle mathcolor="#ff0000"><mi>a</mi></mstyle><mstyle mathcolor="#ff0000"><mi>b</mi></mstyle><mo>-</mo><mi>c</mi></mrow>', $xml);
     }
 }

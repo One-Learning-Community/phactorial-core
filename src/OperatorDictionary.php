@@ -44,6 +44,14 @@ final class OperatorDictionary
         return $ch !== '' && mb_strpos(self::CLOSE, $ch) !== false;
     }
 
+    /** Whether the dictionary has an entry for the character in exactly this form, with no fallback. */
+    public static function hasForm(string $char, string $form): bool
+    {
+        self::$table ??= require __DIR__ . '/../resources/operators.php';
+
+        return isset(self::$table[$char . '|' . $form]);
+    }
+
     /**
      * The dictionary entry for an operator in a form. A form with no entry falls back to infix, then
      * postfix, then prefix; a character with no entry at all gets 5/18 em on each side.

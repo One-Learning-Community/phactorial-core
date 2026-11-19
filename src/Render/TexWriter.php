@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Phactorial\Render;
 
 use Phactorial\Math;
+use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fenced;
@@ -60,13 +61,8 @@ final class TexWriter
     {
         $saved = self::$topLevel;
         self::$topLevel = [];
-        $top = self::strip($root);
-        while ($top instanceof DisplayStyle) {
-            // `\displaystyle x \tag{1}` reads as a switch around the whole formula: its tag is still at the top.
-            $top = self::strip($top->content);
-        }
         $tagged = false;
-        foreach ($top instanceof Row ? $top->children : [$top] as $child) {
+        foreach (self::topChildren($root) as $child) {
             if ($child instanceof TexSource && str_starts_with($child->tex, '\\tag')) {
                 // KaTeX rejects a second equation number.
                 if ($tagged) {
@@ -81,6 +77,31 @@ final class TexWriter
         } finally {
             self::$topLevel = $saved;
         }
+    }
+
+    /**
+     * The nodes at the top of the formula: through a display switch, and through an unbraced color switch, whose body runs to
+     * the end of the formula (`\color{red} x \tag{1}` still has its tag at the top).
+     *
+     * @return list<Node>
+     */
+    private static function topChildren(Node $n): array
+    {
+        $n = self::strip($n);
+        while ($n instanceof DisplayStyle) {
+            // `\displaystyle x \tag{1}` reads as a switch around the whole formula: its tag is still at the top.
+            $n = self::strip($n->content);
+        }
+        $out = [];
+        foreach ($n instanceof Row ? $n->children : [$n] as $child) {
+            $out[] = $child;
+            if ($child instanceof TexSource && $child->isColorSwitch()) {
+                $body = self::strip($child->content);
+                array_push($out, ...self::topChildren($body instanceof Color ? $body->content : $body));
+            }
+        }
+
+        return $out;
     }
 
     /** trim(), except that a control space `\ ` at the very end keeps its space. */
@@ -99,6 +120,9 @@ final class TexWriter
         return match (true) {
             $n instanceof Fallback => $n->content === null ? '' : self::w($n->content, $inFence),
             $n instanceof TexSource => self::source($n, $inFence),
+            $n instanceof Color => $n->inline
+                ? '{\color{' . $n->color . '} ' . self::w($n->content, false) . '}'
+                : '\textcolor{' . $n->color . '}{' . self::w($n->content, false) . '}',
             $n instanceof Row => self::row($n, $inFence),
             $n instanceof Identifier => self::identifier($n),
             // A MathML-only number such as '1,000' is written raw: the nearest TeX.
@@ -129,6 +153,7 @@ final class TexWriter
         }
         $pieces = [];
         $afterNumber = false;
+        $glued = [];
         $previous = null;
         foreach ($row->children as $kid) {
             $bare = self::strip($kid);
@@ -149,9 +174,15 @@ final class TexWriter
             $isNumber = $bare instanceof Number;
             $pieces[] = $isNumber && $afterNumber ? '{' . $piece . '}' : $piece;
             $afterNumber = $isNumber;
+            // A switch written with nothing after it and no space of its own is followed with none (`\color{red}\middle|`).
+            $glued[count($pieces) - 1] = $kid instanceof TexSource && $kid->isColorSwitch() && $piece === $kid->tex && ! str_ends_with($piece, ' ');
+        }
+        $out = '';
+        foreach ($pieces as $i => $piece) {
+            $out .= ($i > 0 && ! ($glued[$i - 1] ?? false) ? ' ' : '') . $piece;
         }
 
-        return implode(' ', $pieces);
+        return $out;
     }
 
     /** The row the reader builds for `\bmod`, `\mod{n}`, `\pmod{n}` or `\pod{n}`, written as that command; null for any other row. */
@@ -189,9 +220,19 @@ final class TexWriter
             return isset(self::$topLevel[spl_object_id($s)]) ? $s->tex : '';
         }
         $inner = self::strip($s->content);
-        $body = str_starts_with($s->tex, '\\fbox') && $inner instanceof Text ? self::textEscape($inner->text) : self::w($s->content, false);
+        if ($inner instanceof Color) {
+            // The head keeps the color's spelling, so only what the color holds is written after it.
+            $inner = $inner->content;
+            $content = $inner;
+        } else {
+            $content = $s->content;
+        }
+        $body = str_starts_with($s->tex, '\\fbox') && $inner instanceof Text ? self::textEscape($inner->text) : self::w($content, $inFence && $s->close === '');
 
-        return $s->tex . $body . $s->close;
+        // A switch with nothing after it (the rest of its fence follows as siblings) gives up its padding to the row's own space.
+        $head = $body === '' && $s->close === '' ? rtrim($s->tex, ' ') : $s->tex;
+
+        return $head . $body . $s->close;
     }
 
     /** The node with Fallback wrappers peeled. */
@@ -202,6 +243,32 @@ final class TexWriter
         }
 
         return $n;
+    }
+
+    /** The wrappers of a colored or source-spelled operator, around the operator with its class spacing dropped; null when no operator is inside. */
+    private static function withPlainSymbol(Node $n): ?Node
+    {
+        $n = self::peel($n);
+        if ($n instanceof Operator) {
+            return new Operator($n->char);
+        }
+        if ($n instanceof Color) {
+            $inner = self::withPlainSymbol($n->content);
+
+            return $inner === null ? null : new Color($inner, $n->color, $n->inline);
+        }
+        if ($n instanceof DisplayStyle) {
+            $inner = self::withPlainSymbol($n->content);
+
+            return $inner === null ? null : new DisplayStyle($inner, $n->display);
+        }
+        if ($n instanceof TexSource && $n->close !== null) {
+            $inner = self::withPlainSymbol($n->content);
+
+            return $inner === null ? null : new TexSource($inner, $n->tex, $n->close);
+        }
+
+        return null;
     }
 
     /** The node with Fallback wrappers and one-child Rows peeled. */
@@ -561,7 +628,32 @@ final class TexWriter
             $atom = false;
         }
 
+        // `\textcolor{red}{x}^2` takes its script on the token it colors, so a lone colored token needs no braces.
+        $token = $atom ? null : self::loneColoredToken($p);
+        if ($token !== null && $s !== '' && ! self::hasTopLevelSpace(self::w($token, false))) {
+            return $s;
+        }
+
         return $atom && $s !== '' ? $s : '{' . $s . '}';
+    }
+
+    /** The one token a `\textcolor` around $p colors, unless it is a large operator with movable limits (which would take its scripts as limits). */
+    private static function loneColoredToken(Node $p): ?Node
+    {
+        if ($p instanceof TexSource && $p->close === '}' && str_starts_with($p->tex, '\\textcolor')) {
+            $p = self::strip($p->content);
+        }
+        if (! $p instanceof Color || $p->inline) {
+            return null;
+        }
+        $t = self::peel($p->content);
+
+        return match (true) {
+            $t instanceof Identifier => $t,
+            $t instanceof Number => mb_strlen($t->text) === 1 ? $t : null,
+            $t instanceof Operator => $t->isLargeop(OperatorDictionary::FORM_PREFIX) && $t->hasMovableLimits(OperatorDictionary::FORM_PREFIX) ? null : $t,
+            default => null,
+        };
     }
 
     private static function hasTopLevelSpace(string $s): bool
@@ -594,7 +686,9 @@ final class TexWriter
         $op = UnderOver::operatorOf($s->base);
         $nolimits = UnderOver::isLimitName($s->base) || ($op !== null && $op->isLargeop(OperatorDictionary::FORM_PREFIX) && $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX));
         // `{\displaystyle \lim}\nolimits_i` is no TeX: the group stands for the operator, so its scripts simply follow it.
-        if (self::strip($s->base) instanceof DisplayStyle) {
+        // Nor does `\textcolor{red}{\sum}\nolimits`: the control follows a bare operator, never a group or a color wrapper.
+        $written = self::peel($s->base);
+        if ($written instanceof DisplayStyle || $written instanceof Color || $written instanceof TexSource) {
             $nolimits = false;
         }
 
@@ -635,6 +729,15 @@ final class TexWriter
 
         if ($plainFlags && (UnderOver::isLimitName($base) || ($op !== null && ($op->isLargeop(OperatorDictionary::FORM_PREFIX) || $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX))))) {
             $limits = $op !== null && ! UnderOver::isLimitName($base) && ! $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX) ? '\limits' : '';
+            $written = self::peel($base);
+            if ($limits !== '' && ($written instanceof Color || $written instanceof TexSource || $written instanceof DisplayStyle)) {
+                // `\limits` follows a bare operator, never a color wrapper: `\mathop{\textcolor{red}{\int}}\limits`.
+                $inner = self::withPlainSymbol($base);
+                if ($inner !== null) {
+                    return ['\mathop{' . self::w($inner, false) . '}\limits' . self::scriptParts($under, $over), false];
+                }
+                $limits = '';
+            }
 
             return [self::w($base, false) . $limits . self::scriptParts($under, $over), false];
         }

@@ -14,7 +14,7 @@ final class ArchitectureTest extends TestCase
         'Font/MathKern.php', 'Font/MathTable.php', 'Layout/Context.php', 'Layout/Run.php', 'Layout/Stretcher.php',
         'Node/Forms.php', 'OperatorDictionary.php', 'Render/Xml.php', 'ScriptChars.php',
         'Tex/Chem/ChemArrows.php', 'Tex/Chem/ChemReader.php', 'Tex/Chem/UnitReader.php', 'Tex/TexClass.php', 'Tex/TexCursor.php', 'Tex/TexEnvironments.php', 'Tex/TexLexer.php', 'Tex/TexMacros.php', 'Tex/TexSymbols.php',
-        'Styles.php', 'Tokenizer.php', 'Utf8.php',
+        'Colors.php', 'Styles.php', 'Tokenizer.php', 'Utf8.php',
     ];
 
     public function test_engine_types_are_internal_and_the_rest_are_not(): void

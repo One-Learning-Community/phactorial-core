@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Phactorial\Render;
 
+use Phactorial\Colors;
 use Phactorial\Font\Font;
 use Phactorial\Layout\Box;
 use Phactorial\Layout\DisplayItem;
@@ -37,15 +38,21 @@ final class SvgRenderer
             Xml::number($w), Xml::number($h), Xml::number($w), Xml::number($h),
         );
         $svg .= $this->group();
-        $box->each(function (DisplayItem $item, float $dx, float $dy) use (&$svg, $ox, $oy): void {
+        $open = null;
+        $box->eachColored(function (DisplayItem $item, float $dx, float $dy, ?string $color) use (&$svg, &$open, $ox, $oy): void {
             if ($item instanceof Glyph) {
-                $svg .= $this->glyphPath($item, $ox + $dx, $oy + $dy);
+                $element = $this->glyphPath($item, $ox + $dx, $oy + $dy);
             } elseif ($item instanceof Rule) {
-                $svg .= sprintf('<rect x="%s" y="%s" width="%s" height="%s"/>', Xml::number($ox + $dx + $item->x), Xml::number($oy + $dy + $item->y), Xml::number($item->w), Xml::number($item->h));
+                $element = sprintf('<rect x="%s" y="%s" width="%s" height="%s"/>', Xml::number($ox + $dx + $item->x), Xml::number($oy + $dy + $item->y), Xml::number($item->w), Xml::number($item->h));
+            } else {
+                return;
+            }
+            if ($element !== '') {
+                $svg .= self::switchColor($open, $color) . $element;
             }
         });
 
-        return $svg . '</g></svg>';
+        return $svg . self::switchColor($open, null) . '</g></svg>';
     }
 
     /**
@@ -67,11 +74,33 @@ final class SvgRenderer
             $w, $h, Xml::number(-$ascent), $w, $h,
         );
         $svg .= $this->group();
+        $open = null;
         foreach ($glyphs as $g) {
-            $svg .= $this->glyphPath($g, 0.0, 0.0);
+            $element = $this->glyphPath($g, 0.0, 0.0);
+            if ($element !== '') {
+                $svg .= self::switchColor($open, $g->color) . $element;
+            }
         }
 
-        return $svg . '</g></svg>';
+        return $svg . self::switchColor($open, null) . '</g></svg>';
+    }
+
+    /**
+     * The markup that moves the open colored group ($open, null for none) to $color: closes the open group, opens a
+     * new one. A color that is not `#rrggbb` counts as none, so nothing unchecked reaches the markup.
+     */
+    private static function switchColor(?string &$open, ?string $color): string
+    {
+        if ($color !== null && ! Colors::isHex($color)) {
+            $color = null;
+        }
+        if ($color === $open) {
+            return '';
+        }
+        $out = $open !== null ? '</g>' : '';
+        $open = $color;
+
+        return $color !== null ? $out . '<g fill="' . $color . '">' : $out;
     }
 
     private function group(): string
