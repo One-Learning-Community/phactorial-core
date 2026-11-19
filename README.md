@@ -32,7 +32,7 @@ Chemistry works the same way:
 echo MathRender::fromTex('\ce{CH4 + 2O2 -> CO2 + 2H2O}')->svg();
 ```
 
-- Reads what KaTeX reads, and MathML from equation editors, Word and the web.
+- Reads the TeX math commands KaTeX and MathJax support, and MathML from equation editors, Word and the web.
 - Reads mhchem chemistry (`\ce`, `\pu`), which reaches Word and MathML as real equations.
 - Converts TeX to MathML, MathML to TeX, and either to Word.
 - Never throws on input. Fixed limits keep hostile formulas cheap, and anything not drawn as written is reported.
