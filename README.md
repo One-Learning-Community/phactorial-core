@@ -12,10 +12,6 @@
 Math typesetting in plain PHP. It reads TeX or MathML and writes SVG, PNG, MathML, TeX, Word equations (OMML) or plain
 text. It needs PHP 8.4. No Node, no browser, no fonts on the server.
 
-Quoin uses it for equations in PDF, Word and HTML documents.
-
-phpoffice/math converts between MathML and Word's format; Phactorial also reads TeX and draws the formula.
-
 ```
 composer require phactorial/phactorial
 ```
@@ -26,21 +22,21 @@ use Phactorial\MathRender;
 echo MathRender::fromTex('x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}')->display()->svg(pad: 1);
 ```
 
-Every glyph is a path, so the SVG needs no web font. Inline, it carries the `vertical-align` that sets it on the line's
-baseline, and every SVG has an `aria-label` of the formula as text. The same call ends in `png()`, `mathml()`,
-`omml()`, `tex()` or `text()`.
+Every glyph is a path, so the SVG needs no web font. Inline SVG sits on the text's baseline, and every SVG has an
+`aria-label` with the formula as text. For other formats, end the call with `png()`, `mathml()`, `omml()`, `tex()` or
+`text()`.
 
-Chemistry reads the same way. The TeX writer writes `\ce` back as read, so TeX that leaves this package needs mhchem, which KaTeX and MathJax offer.
+Chemistry works the same way:
 
 ```php
 echo MathRender::fromTex('\ce{CH4 + 2O2 -> CO2 + 2H2O}')->svg();
 ```
 
 - Reads what KaTeX reads, and MathML from equation editors, Word and the web.
-- Reads chemistry (`\ce`, `\pu` from mhchem) as ordinary nodes, so it reaches Word and MathML as real equations.
-- Converts TeX to MathML, MathML to TeX, either to Word.
+- Reads mhchem chemistry (`\ce`, `\pu`), which reaches Word and MathML as real equations.
+- Converts TeX to MathML, MathML to TeX, and either to Word.
 - Never throws on input. Fixed limits keep hostile formulas cheap, and anything not drawn as written is reported.
-- About 0.1 ms per formula once the font is loaded, and about 15 ms for the first formula in a new process without opcache.
+- About 0.1 ms per formula once the font is loaded; about 15 ms for the first formula in a new process without opcache.
 
 ## Documentation
 
@@ -60,11 +56,10 @@ composer analyse
 php tests/render-fixtures.php   # writes tests/out/*.svg, .png (needs rsvg-convert) and index.html
 ```
 
-`tests/Fixtures.php` holds the sample formulas. A fixture name ending in `-inline` is laid out in text style; all
-others use display style.
+`tests/Fixtures.php` holds the sample formulas. Fixtures named `*-inline` use text style; the rest use display style.
 
-Spacing, stretching and large-operator behavior come from the W3C MathML Core operator dictionary. The snapshot used
-is recorded in the header of `resources/operators.php`, which `bin/gen-operators.php` generates.
+Operator spacing and stretching come from the W3C MathML Core operator dictionary. `bin/gen-operators.php` generates
+`resources/operators.php` and records the snapshot URL in its header.
 
 ## Credits
 
