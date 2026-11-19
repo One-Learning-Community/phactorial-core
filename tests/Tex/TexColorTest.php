@@ -7,6 +7,7 @@ namespace Phactorial\Tests\Tex;
 use Phactorial\Layout\Box;
 use Phactorial\Layout\Glyph;
 use Phactorial\Math;
+use Phactorial\Mathml\MathmlReader;
 use Phactorial\Node\Color;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fraction;
@@ -14,6 +15,7 @@ use Phactorial\Node\Identifier;
 use Phactorial\Node\Node;
 use Phactorial\Node\Row;
 use Phactorial\Node\TexSource;
+use Phactorial\Render\MathmlWriter;
 use Phactorial\Render\TexWriter;
 use Phactorial\Tex\TexReader;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -28,6 +30,7 @@ final class TexColorTest extends TestCase
         foreach ([
             ['red', '#ff0000'], ['#f00', '#ff0000'], ['#00FF00', '#00ff00'], ['[HTML]{2350FF}', '#2350ff'],
             ['[rgb]{1, 0, 0}', '#ff0000'], ['[RGB]{255,0,0}', '#ff0000'], ['[gray]{0}', '#000000'],
+            ['red!50', '#ff8080'], ['-red!30!blue', '#b3ff4d'],
         ] as [$arg, $hex]) {
             $arg = str_starts_with($arg, '[') ? $arg : '{' . $arg . '}';
             yield '\color' . $arg => ['\color' . $arg, $hex, 'switch'];
@@ -76,7 +79,7 @@ final class TexColorTest extends TestCase
     public static function roundTrips(): iterable
     {
         foreach ([
-            '\textcolor{red}{x}', 'a {\color{blue} b + c} d', '\color[HTML]{2350FF} x', '\textcolor{red!50}{x}',
+            '\textcolor{red}{x}', 'a {\color{blue} b + c} d', '\color[HTML]{2350FF} x', '\textcolor{Salmon}{x}',
             'a \color{red}', 'x^{a \color{red} y}', '{\color{red}}', '{\color{red} }', '\color{red } x', '\textcolor{ red}{x}', '{\color{#00ff00} y}', '\textcolor[rgb]{1, 0, 0}{x}',
         ] as $t) {
             yield $t => [$t];
@@ -89,17 +92,29 @@ final class TexColorTest extends TestCase
         self::assertSame($tex, TexWriter::write(Math::tex($tex)));
     }
 
+    public function test_mix_round_trips_through_mathml(): void
+    {
+        $xml = MathmlWriter::write(Math::tex('\textcolor{blue!20!black}{x}'));
+        self::assertSame('\textcolor{#000033}{x}', TexWriter::write(MathmlReader::read($xml)->node));
+    }
+
+    public function test_near_miss_mix_is_noted(): void
+    {
+        $notes = TexReader::read('\textcolor{red!101}{x}')->notes();
+        self::assertSame(['unknown color `red!101`; drawn in the default color'], array_map(static fn ($n): string => $n->reason, $notes));
+    }
+
     public function test_a_rejected_color_keeps_the_source_and_notes_once_per_spec(): void
     {
-        $notes = TexReader::read('\textcolor{red!50}{x} \textcolor{red!50}{y} \textcolor{red!60}{z} {\color{nope} w}')->notes();
+        $notes = TexReader::read('\textcolor{Salmon}{x} \textcolor{Salmon}{y} \textcolor{Orchid}{z} {\color{nope} w}')->notes();
         self::assertSame(
-            ['unknown color `red!50`; drawn in the default color', 'unknown color `red!60`; drawn in the default color', 'unknown color `nope`; drawn in the default color'],
+            ['unknown color `Salmon`; drawn in the default color', 'unknown color `Orchid`; drawn in the default color', 'unknown color `nope`; drawn in the default color'],
             array_map(static fn ($n): string => $n->reason, $notes),
         );
-        $node = Math::tex('\textcolor{red!50}{x}');
+        $node = Math::tex('\textcolor{Salmon}{x}');
         self::assertInstanceOf(TexSource::class, $node);
         self::assertInstanceOf(Fallback::class, $node->content);
-        self::assertSame('\textcolor{red!50}{', $node->tex);
+        self::assertSame('\textcolor{Salmon}{', $node->tex);
     }
 
     /** @return iterable<string, array{string}> */
@@ -161,8 +176,8 @@ final class TexColorTest extends TestCase
 
     public function test_one_note_serves_both_commands_for_the_same_spec(): void
     {
-        self::assertCount(1, TexReader::read('\color{red!50} x \textcolor{red!50}{y}')->notes());
-        self::assertCount(2, TexReader::read('\color{red!50} x \textcolor{red!60}{y}')->notes());
+        self::assertCount(1, TexReader::read('\color{Salmon} x \textcolor{Salmon}{y}')->notes());
+        self::assertCount(2, TexReader::read('\color{Salmon} x \textcolor{Orchid}{y}')->notes());
     }
 
     public function test_empty_groups_lay_out_to_width_zero(): void

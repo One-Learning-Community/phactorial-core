@@ -153,6 +153,7 @@ Phactorial\Node\Grid::$columnSpacing | readonly protected(set) array ; @var list
 Phactorial\Node\Grid::$columns | readonly protected(set) int
 Phactorial\Node\Grid::$display | readonly protected(set) bool
 Phactorial\Node\Grid::$rowAlign | readonly protected(set) string
+Phactorial\Node\Grid::$rowSpacing | readonly protected(set) array ; @var list<float>
 Phactorial\Node\Grid::$rows | readonly protected(set) array ; @var list<list<Node>>
 Phactorial\Node\Grid::children() | (): array ; @return list<Node>
 Phactorial\Node\Identifier | final class extends Phactorial\Node\Node

@@ -157,6 +157,18 @@ final class TexEnvironments
     }
 
     /**
+     * Whether the environment sets its lines a jot apart: the alignments and gathered.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public static function addsJot(string $name): bool
+    {
+        $base = rtrim($name, '*');
+
+        return in_array($base, self::ALIGNED, true) || $base === 'gathered' || $base === 'gather';
+    }
+
+    /**
      * @param list<list<Node>> $rows
      * @param list<string> $align
      * @param list<array{NoteLevel, string, string, int}> $notes

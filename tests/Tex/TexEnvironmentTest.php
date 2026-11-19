@@ -170,11 +170,11 @@ final class TexEnvironmentTest extends TestCase
             self::assertSame([], self::notes($tex), $tex);
         }
         TreeAssert::assertSameTree(Math::row('x'), Fallback::unwrap(Math::tex('\textcolor{red}{x}')));
-        $n = self::notes('\textcolor{red!50}{x}');
+        $n = self::notes('\textcolor{Salmon}{x}');
         self::assertCount(1, $n);
         self::assertSame(NoteLevel::Approximated, $n[0]->level);
         self::assertSame('\textcolor', $n[0]->element);
-        self::assertSame('unknown color `red!50`; drawn in the default color', $n[0]->reason);
+        self::assertSame('unknown color `Salmon`; drawn in the default color', $n[0]->reason);
         foreach (['\boxed{x}', '\fbox{x}', '\cancel{x}', '\bcancel{x}', '\xcancel{x}', '\sout{x}'] as $tex) {
             $n = self::notes($tex);
             self::assertCount(1, $n, $tex);

@@ -38,10 +38,13 @@ final class RoundTripFuzzTest extends TestCase
 
     // Pins are [count, first 12 hex chars of sha1 of the sorted inputs joined by NUL]. Some of the pinned differences
     // are by design (named colors written as hex, aligned read back as darray).
-    private const array WELL_FORMED_PIN = [753, '7fde65a190bb'];
+    // The well-formed pin moved from [753, '7fde65a190bb'] when table rows got TeX's array strut. A \ce{->} arrow reads back from
+    // MathML with a smaller ascent, which used to change a pmatrix or cases row and so its outer delimiter; the strut makes both
+    // sides the same height, and 15 inputs now agree within the arrow slack. All 66 moved inputs are pmatrix or cases; none was added.
+    private const array WELL_FORMED_PIN = [738, '3f071a8540ea'];
     private const array FENCED_PIN = [63, '13719d3a8cd9'];
     private const array FENCED_TEX_PIN = [5909, 'e082f087a002'];
-    private const array SOUP_PIN = [431, '548c7e75edb9'];
+    private const array SOUP_PIN = [300, '64859f5ea133'];
 
     /** Well-formed structured inputs that the reader accepts without notes. */
     #[Group('fuzz')]

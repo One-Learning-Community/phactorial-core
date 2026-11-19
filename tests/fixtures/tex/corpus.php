@@ -192,7 +192,7 @@ return [
     'tag-star' => ['a = b \tag*{(A)}', [['\tag', 'Dropped']]],
     'nonumber' => ['a = b \nonumber \notag', []],
     'label-ref' => ['a = b \label{x} \quad \ref{x} \quad \eqref{x}', [['\ref', 'Dropped'], ['\eqref', 'Dropped']]],
-    'cr-spacing' => ['\begin{aligned} a &= b \\\[4pt] c &= d \\\[1em] e &= f \end{aligned}', [['\\\\', 'Approximated']]],
+    'cr-spacing' => ['\begin{aligned} a &= b \\\[4pt] c &= d \\\[1em] e &= f \end{aligned}', []],
     'newline-cmd' => ['\begin{array}{c} a \newline b \end{array}', [['\newline', 'Dropped']]],
     'hline-more' => ['\begin{array}{|c|c|} \hline a & b \\\ \hline c & d \\\ \hline \end{array}', [['array', 'Dropped'], ['\hline', 'Dropped']]],
     'hdashline' => ['\begin{array}{c:c} a & b \\\ \hdashline c & d \end{array}', [['array', 'Dropped'], ['\hline', 'Dropped']]],

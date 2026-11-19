@@ -28,6 +28,7 @@ use Phactorial\Node\UnderOver;
 use Phactorial\OperatorDictionary;
 use Phactorial\Styles;
 use Phactorial\Tex\TexClass;
+use Phactorial\Tex\TexEnvironments;
 use Phactorial\Tex\TexReader;
 use Phactorial\Tex\TexSymbols;
 
@@ -62,6 +63,8 @@ final class TexWriter
     public static function write(Node $root): string
     {
         $saved = self::$topLevel;
+        [$savedAround, $savedDepth, $savedOpAtom] = [self::$around, self::$scriptDepth, self::$opAtomCore];
+        [self::$around, self::$scriptDepth, self::$opAtomCore] = [null, 0, false];
         self::$topLevel = [];
         $tagged = false;
         foreach (self::topChildren($root) as $child) {
@@ -78,6 +81,7 @@ final class TexWriter
             return self::trimTex(self::w($root, false));
         } finally {
             self::$topLevel = $saved;
+            [self::$around, self::$scriptDepth, self::$opAtomCore] = [$savedAround, $savedDepth, $savedOpAtom];
         }
     }
 
@@ -117,6 +121,24 @@ final class TexWriter
         return $tex;
     }
 
+    /** How many script-level parts (scripts, limits, a root index, a label) enclose what is being written. */
+    private static int $scriptDepth = 0;
+
+    /**
+     * Writes a part the layout draws at script level, where an operator loses most of its dictionary spacing.
+     *
+     * @param \Closure(): string $write
+     */
+    private static function atScript(\Closure $write): string
+    {
+        self::$scriptDepth++;
+        try {
+            return $write();
+        } finally {
+            self::$scriptDepth--;
+        }
+    }
+
     private static function w(Node $n, bool $inFence): string
     {
         return match (true) {
@@ -130,7 +152,7 @@ final class TexWriter
             // A MathML-only number such as '1,000' is written raw: the nearest TeX.
             $n instanceof Number => self::escapeAll($n->text),
             $n instanceof Text => '\text{' . self::textEscape($n->text) . '}',
-            $n instanceof Operator => self::operator($n),
+            $n instanceof Operator => self::loneOperator($n, $inFence),
             $n instanceof Middle => $inFence && TexSymbols::delimiter($n->char) !== null ? '\middle' . TexSymbols::delimiter($n->char) : self::symbol($n->char),
             $n instanceof Space => self::space($n->em),
             $n instanceof Phantom => '\phantom{' . self::w($n->content, false) . '}',
@@ -156,7 +178,7 @@ final class TexWriter
         $inner = self::w($c->content, false);
         $content = self::strip($c->content);
         $base = $content instanceof Scripts || $content instanceof UnderOver ? $content->base : null;
-        if ($base !== null && UnderOver::nameNode($base) instanceof Operator && preg_match('/^((?:\\\\mkern-?[0-9.]+mu )?)(.*?)((?: \\\\mkern-?[0-9.]+mu)?)$/s', $inner, $m) === 1) {
+        if ($base !== null && UnderOver::nameNode($base) instanceof Operator && preg_match('/^((?:(?:\\\\mkern-?[0-9.]+mu|\\\\[,:;!]|\\\\ ) )?)(.*?)((?: (?:\\\\mkern-?[0-9.]+mu|\\\\[,:;!]|\\\\ ))?)$/s', $inner, $m) === 1) {
             return $m[1] . '\textcolor{' . $c->color . '}{' . $m[2] . '}' . $m[3];
         }
 
@@ -195,7 +217,23 @@ final class TexWriter
             if ($bare instanceof Row) {
                 $piece = self::modular($bare) ?? '{' . self::w($bare, false) . '}';
             } else {
-                $piece = self::operatorPiece($kid, $forms[$index], $inFence) ?? self::w($kid, $inFence);
+                // An empty Fallback (a dropped line break) is invisible to the spacing, as in Row::build(): the neighbors are the
+                // nearest children past it.
+                $before = $index - 1;
+                while ($before >= 0 && self::isInvisible($row->children[$before])) {
+                    $before--;
+                }
+                $after = $index + 1;
+                while ($after < count($row->children) && self::isInvisible($row->children[$after])) {
+                    $after++;
+                }
+                $outerAround = self::$around;
+                self::$around = [$kid, $row->children[$before] ?? null, $row->children[$after] ?? null, $forms[$after] ?? null];
+                try {
+                    $piece = self::operatorPiece($kid, $forms[$index], $inFence, ...array_slice(self::$around, 1)) ?? self::w($kid, $inFence);
+                } finally {
+                    self::$around = $outerAround;
+                }
             }
             if ($piece === '') {
                 continue;
@@ -579,6 +617,14 @@ final class TexWriter
         return in_array($ch, TexSymbols::ORD, true);
     }
 
+    /** An em amount with at most three decimals, trailing zeros trimmed: `0.4`, `-0.25`, `1`, and `0` for none. */
+    private static function emAmount(float $em): string
+    {
+        $num = rtrim(rtrim(number_format($em, 3, '.', ''), '0'), '.');
+
+        return $num === '' || $num === '-0' ? '0' : $num;
+    }
+
     private static function space(float $em): string
     {
         foreach ([[3 / 18, '\,'], [4 / 18, '\:'], [5 / 18, '\;'], [-3 / 18, '\!'], [1 / 3, '\ '], [1.0, '\quad'], [2.0, '\qquad']] as [$v, $cmd]) {
@@ -586,12 +632,73 @@ final class TexWriter
                 return $cmd;
             }
         }
-        $num = rtrim(rtrim(number_format($em, 6, '.', ''), '0'), '.');
+        // An amount with at most three decimals in em stays an \hspace; any other is a kern in mu. kern() uses this spelling too,
+        // so a kern reads back and writes the same.
+        // In a script, em does not shrink with the size and mu does, so the kern spelling is kept there.
+        if (self::$scriptDepth === 0 && abs($em * 1000 - round($em * 1000)) < 1e-6) {
+            return '\hspace{' . self::emAmount($em) . 'em}';
+        }
 
-        return '\hspace{' . ($num === '' || $num === '-0' ? '0' : $num) . 'em}';
+        return '\mkern' . rtrim(rtrim(number_format($em * 18, 4, '.', ''), '0'), '.') . 'mu';
     }
 
     // ---- operators ----
+
+    /**
+     * An operator written outside a row (the root, fence content, an argument) is a one-child row: one TeX reads as ordinary still
+     * gets its dictionary spacing. One whose spelling an enclosing operatorPiece() or scripts is already writing goes straight to
+     * operator(), and so does a plain symbol written on purpose ($bareOperator).
+     */
+    private static function loneOperator(Operator $o, bool $inFence): string
+    {
+        if ($o !== self::$edge && ! self::$bareOperator && self::readsAsOrdinary($o)) {
+            $form = Forms::of([$o->form !== null ? $o->withForm(null) : $o])[0];
+
+            return self::operatorPiece($o, $form, $inFence) ?? self::operator($o);
+        }
+
+        return self::operator($o);
+    }
+
+    /** @param \Closure(): string $write */
+    private static function bareSymbol(\Closure $write): string
+    {
+        $outer = self::$bareOperator;
+        self::$bareOperator = true;
+        try {
+            return $write();
+        } finally {
+            self::$bareOperator = $outer;
+        }
+    }
+
+    /** Set while a symbol is written bare on purpose, so loneOperator() leaves it alone. */
+    private static bool $bareOperator = false;
+
+    /**
+     * The non-letter characters of TexSymbols::ORD whose command the TeX reader takes as an identifier; every other command there
+     * (\ldots, \angle, \square ...) it takes as an operator. A test pins this list against the reader.
+     *
+     * Pinned by FormSpacingTexTest.
+     */
+    private const array READ_AS_IDENTIFIER = ['∞', '∂', '∇', '∅', 'ı', 'ȷ', '′', '°', 'ð', 'ß', 'å', 'ø', 'ℏ', 'ℓ', 'ℜ', 'ℑ', 'ℵ', 'ℶ', 'ℷ', 'ℸ', 'Ⅎ'];
+
+    /**
+     * Whether the TeX spelling of this operator reads back as something other than an operator: a letter, a multi-character name
+     * (\sin, \operatorname{...}) or a letter-like symbol (\partial). Such a spelling carries no dictionary spacing of its own.
+     */
+    private static function readsAsOrdinary(Operator $o): bool
+    {
+        if (preg_match('/^\p{L}$/u', $o->char) === 1) {
+            return ! $o->isLargeop(OperatorDictionary::FORM_PREFIX);
+        }
+        if (mb_strlen($o->char) > 1) {
+            return TexSymbols::command($o->char) === null && ! isset(self::MULTI_PRIMES[$o->char])
+                && ! str_ends_with($o->char, "\u{0338}") && TexSymbols::negation($o->char) === null;
+        }
+
+        return in_array($o->char, self::READ_AS_IDENTIFIER, true);
+    }
 
     private static function operator(Operator $o): string
     {
@@ -623,19 +730,36 @@ final class TexWriter
         }
 
         // The core of scripts or limits gets its kerns from the caller, outside the scripts, so a control stays next to the operator.
-        return $core ? $sym : self::kern($left, true) . $sym . self::kern($right, false);
+        if ($core) {
+            return self::$opAtomCore ? '\mathop{' . $sym . '}' : $sym;
+        }
+
+        return self::kern($left, true) . $sym . self::kern($right, false);
     }
 
-    // The three statics below are context for operator(), set only around one self::w() or self::base() call and restored in a
+    // The statics below ($around, $opAtomCore, $edge, $edgeLimits and $form) are context for operator(), set only around one self::w() or self::base() call and restored in a
     // finally block, so they never outlive it. $edge is matched by object identity, so only that one operator (never one in a
     // script or a nested row) is written bare; $form is set only for a row child that is itself an operator.
 
     /**
      * An operator child of a row (possibly colored), written bare with its kerns outside any color group, so the group does not
      * change the spacing around it. A letter whose spacing is not an identifier's is an op atom, since a bare letter reads back as
-     * an identifier. Null when the child is no operator, or needs nothing the plain writing does not give.
+     * an identifier. Null when the child is no operator, or needs nothing the plain writing does not give. $prev and $next are
+     * the siblings in the row, which decide what a plain function name reads back with.
      */
-    private static function operatorPiece(Node $kid, ?string $form, bool $inFence): ?string
+    private static function operatorPiece(Node $kid, ?string $form, bool $inFence, ?Node $prev = null, ?Node $next = null, ?string $nextForm = null): ?string
+    {
+        $parts = self::operatorParts($kid, $form, $inFence, $prev, $next, $nextForm);
+
+        return $parts === null ? null : $parts[0] . $parts[1] . $parts[2];
+    }
+
+    /**
+     * The three parts of operatorPiece(): the kern before, the written operator, the kern after.
+     *
+     * @return ?array{string, string, string}
+     */
+    private static function operatorParts(Node $kid, ?string $form, bool $inFence, ?Node $prev = null, ?Node $next = null, ?string $nextForm = null): ?array
     {
         $core = UnderOver::nameNode($kid);
         if (! $core instanceof Operator) {
@@ -651,22 +775,167 @@ final class TexWriter
             }
         });
         if (self::spacingPlan($core, $form, false, false)[0] !== null) {
-            return $piece; // written as a class, which carries the spacing itself
+            return ['', $piece, '']; // written as a class, which carries the spacing itself
         }
-        $letter = preg_match('/^\p{L}$/u', $core->char) === 1 && ! $core->isLargeop(OperatorDictionary::FORM_PREFIX);
-        if ($letter) {
-            $dict = OperatorDictionary::lookup($core->char, $core->form ?? $form ?? OperatorDictionary::FORM_PREFIX);
-            if (abs($core->lspace ?? $dict['lspace']) > self::SPACE_TOLERANCE || abs($core->rspace ?? $dict['rspace']) > self::SPACE_TOLERANCE) {
-                [, $l, $r] = self::spacingPlan($core, $form, false, true);
+        if (self::readsAsOrdinary($core)) {
+            $plan = self::ordinaryPlan($core, $form, $prev, $next, $nextForm);
+            if ($plan === null) {
+                return ['', $piece, ''];
+            }
+            [$l, $r] = $plan;
+            if (self::$scriptDepth > 0 && $prev === null) {
+                // A negative kern first in a script argument is laid out shorter than its amount (a -2mu kern takes off more than 2mu); the same total after the symbol is not.
+                [$l, $r] = [0.0, $l + $r];
+            }
+            if (self::coloredDirectly($kid, $core)) {
+                // A colored name read as ordinary drops a \mathop outside the color, so the op atom goes inside it.
+                $outerAtom = self::$opAtomCore;
+                self::$opAtomCore = true;
+                try {
+                    $piece = self::withEdge($core, false, static fn (): string => self::w($kid, $inFence));
+                } finally {
+                    self::$opAtomCore = $outerAtom;
+                }
 
-                return self::kern($l, true) . '\mathop{' . $piece . '}' . self::kern($r, false);
+                return [self::kern($l, true), $piece, self::kern($r, false)];
             }
 
-            return $piece;
+            return [self::kern($l, true), '\mathop{' . $piece . '}', self::kern($r, false)];
         }
         [, $l, $r] = self::spacingPlan($core, $form, false, false);
 
-        return self::kern($l, true) . $piece . self::kern($r, false);
+        return [self::kern($l, true), $piece, self::kern($r, false)];
+    }
+
+    /**
+     * What an operator that TeX reads as ordinary needs written: the kerns, in mu, around an op atom (`\mathop{piece}`, which reads
+     * back with 1mu a side), or null when the plain spelling already reads back with the spacing the layout gives the operator.
+     * A letter is always an op atom when it has spacing: written bare it reads back italic, as an identifier.
+     *
+     * @return ?array{float, float}
+     */
+    private static function ordinaryPlan(Operator $core, ?string $form, ?Node $prev, ?Node $next, ?string $nextForm): ?array
+    {
+        [$tl, $tr] = self::layoutSpacing($core, $form);
+        if ($prev !== null && self::isFunctionName($prev) && (Fallback::unwrap($prev) instanceof Identifier || Fallback::unwrap($prev) instanceof Scripts)
+            && Forms::isRelation($core, $form)) {
+            // The thin space after a function name goes before a relation; written as an op atom, the symbol is not one, so the space stays.
+            $tl -= 3.0;
+        }
+        if (preg_match('/^\p{L}$/u', $core->char) === 1) {
+            $dict = OperatorDictionary::lookup($core->char, $core->form ?? $form ?? OperatorDictionary::FORM_PREFIX);
+            $has = abs($core->lspace ?? $dict['lspace']) > self::SPACE_TOLERANCE || abs($core->rspace ?? $dict['rspace']) > self::SPACE_TOLERANCE;
+        } else {
+            [$pl, $pr] = self::plainSpacing($core, $prev, $next, $nextForm);
+            $has = abs($tl - $pl) > self::SPACE_TOLERANCE || abs($tr - $pr) > self::SPACE_TOLERANCE;
+        }
+
+        // Written plain, the symbol is an operand for the operator after it, which would read infix or postfix, not prefix as after
+        // an operator; an op atom is not an operand.
+        $operand = $next !== null && Fallback::unwrap($next) instanceof Operator && $nextForm === OperatorDictionary::FORM_PREFIX;
+
+        return $has || $operand ? [$tl - 1.0, $tr - 1.0] : null;
+    }
+
+    /**
+     * The spacing in mu the layout gives this operator in the form its position implies: the dictionary's, less what scripts drop.
+     *
+     * @return array{float, float}
+     */
+    private static function layoutSpacing(Operator $o, ?string $form): array
+    {
+        $entry = OperatorDictionary::lookup($o->char, $o->form ?? $form ?? OperatorDictionary::FORM_PREFIX);
+        $l = $o->lspace ?? $entry['lspace'];
+        $r = $o->rspace ?? $entry['rspace'];
+        if (self::$scriptDepth > 0) {
+            // Twin of Operator::layoutAs() at script level (keep the two in step): an explicit side keeps what an op has and loses more, any other follows
+            // the dictionary, which drops it for an operator spaced on both sides.
+            $drops = OperatorDictionary::dropsSpacingInScripts($o->char);
+            $l = $o->lspace !== null ? ($o->lspace > Operator::SCRIPT_SPACE ? 0.0 : $l) : ($drops ? 0.0 : $l);
+            $r = $o->rspace !== null ? ($o->rspace > Operator::SCRIPT_SPACE ? 0.0 : $r) : ($drops ? 0.0 : $r);
+        }
+
+        return [(float) $l, (float) $r];
+    }
+
+    /**
+     * The spacing in mu the plain spelling reads back with. A letter-like symbol is an identifier, with none. A name (`\sin`,
+     * `\operatorname{mod}`) is a function name, TeX's Op class: a thin space after an operand, and one after itself that goes
+     * before a fence, a comma or a relation. Twin of the name rules of Row::build(): keep the two in step, including its relation
+     * predicate (Row::isRelation()) and its skipping of empty Fallbacks, which the callers do by passing the nearest real neighbors.
+     *
+     * @return array{float, float}
+     */
+    private static function plainSpacing(Operator $core, ?Node $prev, ?Node $next, ?string $nextForm): array
+    {
+        $before = $prev === null ? null : Fallback::unwrap($prev);
+        $after = $next === null ? null : Fallback::unwrap($next);
+        // A fraction beside an operand gets a thin space, which an identifier takes and an operator does not.
+        $l = $before instanceof Fraction ? 3.0 : 0.0;
+        $r = $after instanceof Fraction ? 3.0 : 0.0;
+        if (mb_strlen($core->char) < 2) {
+            // A function name after an identifier takes a thin space; after an operator it does not.
+            return [$l, $after !== null && self::isFunctionName($after) ? $r + 3.0 : $r];
+        }
+        if ($before !== null && ! $before instanceof Space && ! $before instanceof Fraction && ! self::isFunctionName($before)
+            && (! ($before instanceof Operator || $before instanceof Middle) || ($before instanceof Operator && (OperatorDictionary::isClosing($before->char) || $before->char === '!')))) {
+            $l = 3.0;
+        }
+        if (! ($after instanceof Operator && (OperatorDictionary::isOpening($after->char) || OperatorDictionary::isClosing($after->char)
+            || in_array($after->char, [',', ';'], true) || Row::isRelation($after, $nextForm)))) {
+            $r += 3.0;
+        }
+
+        return [$l, $r];
+    }
+
+    /** An empty Fallback, which the layout spaces as if it were not there (Row::build()). */
+    private static function isInvisible(Node $n): bool
+    {
+        return Fallback::unwrap($n) instanceof Fallback;
+    }
+
+    /** A function name as the layout takes it: an upright named identifier, alone or with scripts. */
+    private static function isFunctionName(Node $n): bool
+    {
+        $n = Fallback::unwrap($n);
+        if ($n instanceof Scripts) {
+            return self::isFunctionName($n->base);
+        }
+
+        return $n instanceof Identifier && $n->function && $n->upright && mb_strlen($n->name) > 1;
+    }
+
+    /**
+     * The row child being written and its neighbors (previous, next, next one's form), for the scripts of that child to ask what
+     * its operator base needs. Matched by identity, so a nested node never reads another row's.
+     *
+     * @var array{Node, ?Node, ?Node, ?string}|null
+     */
+    private static ?array $around = null;
+
+    private static function uncolored(Node $n): Node
+    {
+        $n = self::strip($n);
+        while ($n instanceof Color) {
+            $n = self::strip($n->content);
+        }
+
+        return $n;
+    }
+
+    /** Whether $kid is $core under one or more color wrappers, with no scripts or limits between. */
+    private static function coloredDirectly(Node $kid, Operator $core): bool
+    {
+        $n = self::strip($kid);
+        if (! $n instanceof Color) {
+            return false;
+        }
+        while ($n instanceof Color) {
+            $n = self::strip($n->content);
+        }
+
+        return $n === $core;
     }
 
     /**
@@ -690,6 +959,9 @@ final class TexWriter
             [self::$edge, self::$edgeLimits] = [$outerEdge, $outerLimits];
         }
     }
+
+    /** Set while operatorPiece() writes a colored operator read as ordinary: the core is spelled `\mathop{...}` inside the color. */
+    private static bool $opAtomCore = false;
 
     /** The operator whose scripts or limits are being written: its kerns go around them, not around the symbol. */
     private static ?Operator $edge = null;
@@ -738,14 +1010,16 @@ final class TexWriter
         return [null, $l - $bl, $r - $br];
     }
 
-    /** `\mkern<n>mu` for a nonzero amount, with a space on the side facing the symbol; '' for none. */
+    /**
+     * A kern of $mu for a nonzero amount, with a space on the side facing the symbol; '' for none. It is spelled as space() spells
+     * the same width (`\:`, `\mkern2mu`), so that writing what was read gives the same text.
+     */
     private static function kern(float $mu, bool $before): string
     {
         if (abs($mu) < self::SPACE_TOLERANCE) {
             return '';
         }
-        $num = rtrim(rtrim(number_format($mu, 4, '.', ''), '0'), '.');
-        $k = '\\mkern' . $num . 'mu';
+        $k = self::space($mu / 18);
 
         return $before ? $k . ' ' : ' ' . $k;
     }
@@ -799,7 +1073,7 @@ final class TexWriter
     {
         self::$optional++;
         try {
-            $s = self::w($n, false);
+            $s = self::atScript(static fn (): string => self::w($n, false));
         } finally {
             self::$optional--;
         }
@@ -813,7 +1087,7 @@ final class TexWriter
     /** A script argument: bare when it is one token, braced otherwise. */
     private static function arg(Node $n): string
     {
-        $s = self::w($n, false);
+        $s = self::atScript(static fn (): string => self::w($n, false));
 
         if (preg_match('/^\\\\([a-zA-Z]+)$/', $s, $m) === 1) {
             // KaTeX rejects a function or macro command (\sin, \neq, \int) as an unbraced script argument: brace all but plain symbols.
@@ -960,7 +1234,7 @@ final class TexWriter
         }
         $inner = self::withPlainSymbol($base);
 
-        return $inner === null ? null : ['\mathop{' . self::w($inner, false) . '}' . $control, true, $small];
+        return $inner === null ? null : ['\mathop{' . self::bareSymbol(static fn (): string => self::w($inner, false)) . '}' . $control, true, $small];
     }
 
     private static function scriptParts(?Node $sub, ?Node $sup): string
@@ -1049,7 +1323,29 @@ final class TexWriter
         } else {
             $core = UnderOver::nameNode($s->base);
             $base = self::withEdge($core instanceof Operator ? $core : null, false, static fn (): string => self::base($s->base));
-            if ($core instanceof Operator) {
+            if ($core instanceof Operator && self::readsAsOrdinary($core) && preg_match('/^\p{L}$/u', $core->char) !== 1 && self::spacingPlan($core, null, false, false)[0] === null) {
+                // `\sin^2 x`: the name reads back as a function name, so what the layout gives the operator is made up in kerns.
+                $around = self::$around !== null && self::uncolored(self::$around[0]) === $s ? self::$around : [null, null, null, null];
+                $plan = self::ordinaryPlan($core, null, $around[1], $around[2], $around[3]);
+                if ($plan !== null) {
+                    if (self::coloredDirectly($s->base, $core)) {
+                        // The reader drops a \mathop outside a color, so the op atom goes inside it; the group keeps the scripts beside.
+                        $outerAtom = self::$opAtomCore;
+                        self::$opAtomCore = true;
+                        try {
+                            $base = self::withEdge($core, false, static fn (): string => self::base($s->base));
+                        } finally {
+                            self::$opAtomCore = $outerAtom;
+                        }
+                    } else {
+                        $base = '\mathop{' . $base . '}';
+                        if (self::limitsStateOf($base) !== 'beside') {
+                            $base .= '\nolimits'; // an op atom would stack its scripts as limits in display
+                        }
+                    }
+                    [$kernL, $kernR] = [self::kern($plan[0], true), self::kern($plan[1], false)];
+                }
+            } elseif ($core instanceof Operator) {
                 [$kernL, $kernR] = self::edgeKerns($core, false, false);
             }
         }
@@ -1137,7 +1433,18 @@ final class TexWriter
                 $wide = $overOp->stretchy !== false;
                 $name = $wide ? ($names[1] ?? $names[0]) : ($names[0] ?? $names[1]);
 
-                return ['\\' . $name . '{' . self::w($base, false) . '}', true];
+                // A stretchy accent spans the base operator's glyph and its spacing goes around the stack, so the kerns do too.
+                $baseOp = UnderOver::operatorOf($base);
+                // A stretched, large or limit-name base is laid out by its own rules, with no spacing around the stack.
+                $spans = $baseOp !== null && ! UnderOver::isStretchy($baseOp) && ! $baseOp->isLargeop(OperatorDictionary::FORM_PREFIX) && ! UnderOver::isLimitName($base);
+                if ($wide && $spans && ($parts = self::operatorParts($base, null, false, ...(self::$around !== null && self::uncolored(self::$around[0]) === $u ? array_slice(self::$around, 1) : []))) !== null) {
+                    [$kernL, $piece, $kernR] = $parts;
+
+                    return [$kernL . '\\' . $name . '{' . $piece . '}' . $kernR, $kernL === '' && $kernR === ''];
+                }
+
+                // A stretched base ignores its own spacing, so it is written bare, with no kerns inside the accent.
+                return ['\\' . $name . '{' . self::withEdge($wide ? $baseOp : null, false, static fn (): string => self::w($base, false)) . '}', true];
             }
         }
         // Extensible arrows.
@@ -1147,7 +1454,7 @@ final class TexWriter
                 $label = '[' . self::optional($under) . ']';
             }
 
-            return ['\\' . TexSymbols::XARROWS[$op->char] . $label . '{' . ($over === null ? '' : self::w($over, false)) . '}', true];
+            return ['\\' . TexSymbols::XARROWS[$op->char] . $label . '{' . ($over === null ? '' : self::atScript(static fn (): string => self::w($over, false))) . '}', true];
         }
         // Anything else. An operator's kerns go outside the stack, not inside the base.
         $core = UnderOver::nameNode($base);
@@ -1157,10 +1464,10 @@ final class TexWriter
             $s = '{' . $s . '}'; // a nested pair, not one node with both parts
         }
         if ($over !== null) {
-            $s = '\overset{' . self::w($over, false) . '}{' . $s . '}';
+            $s = '\overset{' . self::atScript(static fn (): string => self::w($over, false)) . '}{' . $s . '}';
         }
         if ($under !== null) {
-            $s = '\underset{' . self::w($under, false) . '}{' . $s . '}';
+            $s = '\underset{' . self::atScript(static fn (): string => self::w($under, false)) . '}{' . $s . '}';
         }
 
         return [$kernL . $s . $kernR, $kernL === '' && $kernR === ''];
@@ -1246,8 +1553,8 @@ final class TexWriter
 
             return self::environment($g, 'aligned');
         }
-        // gathered has one column (amsmath rejects an & in it), so a wider display grid is a darray.
-        if ($bare && ($g->columns === 0 || count(array_unique($g->columnAlign)) === 1 && $g->columnAlign[0] === 'center') && (! $g->display || $g->columns <= 1)) {
+        // gathered has one column (amsmath rejects an & in it), so a wider display grid is a darray; so is a narrow one that sits closer than gathered's jot.
+        if ($bare && ($g->columns === 0 || count(array_unique($g->columnAlign)) === 1 && $g->columnAlign[0] === 'center') && (! $g->display || $g->columns <= 1 && array_all($g->rowSpacing, static fn (float $gap): bool => $gap > Grid::JOT - 0.0005))) {
             return self::environment($g, $g->display ? 'gathered' : 'matrix');
         }
         $spec = implode('', array_map(static fn (string $a): string => $a[0], $g->columnAlign));
@@ -1277,7 +1584,17 @@ final class TexWriter
             }
             $rows[] = self::trimTex($line);
         }
+        $jot = TexEnvironments::addsJot($env);
+        $out = '';
+        foreach ($rows as $r => $line) {
+            $out .= $line;
+            if ($r < count($rows) - 1) {
+                // The environment's own jot is not written: only what is left over.
+                $num = self::emAmount($g->rowSpacing[$r] - ($jot ? Grid::JOT : 0.0));
+                $out .= ' \\\\' . ($num === '0' ? '' : '[' . $num . 'em]') . ' ';
+            }
+        }
 
-        return '\begin{' . $env . '}' . $args . implode(' \\\\ ', $rows) . '\end{' . $env . '}';
+        return '\begin{' . $env . '}' . $args . $out . '\end{' . $env . '}';
     }
 }

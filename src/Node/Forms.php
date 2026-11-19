@@ -216,12 +216,15 @@ final class Forms
         return false;
     }
 
-    /** A Space, or a Phantom of space-like content: occupies room but is no operand. */
+    /**
+     * A Space, or a Phantom of space-like content: occupies room but is no operand. So is a Fallback with no content (a
+     * dropped `\\` or `&`), which stands for nothing and is skipped as if it were not there.
+     */
     public static function spaceLike(Node $n): bool
     {
         $n = Fallback::unwrap($n);
 
-        return $n instanceof Space || ($n instanceof Phantom && self::spaceLike($n->content));
+        return ($n instanceof Fallback && $n->content === null) || $n instanceof Space || ($n instanceof Phantom && self::spaceLike($n->content));
     }
 
     /** An operator that is only ever postfix, like `!`: it ends an operand and leaves one behind. */

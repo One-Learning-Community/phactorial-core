@@ -399,7 +399,8 @@ final class Math
         }
         unset($row);
 
-        return new Grid($cells, $align, 'baseline', true, $gaps, true);
+        // TeX's \jot between the lines of an alignment.
+        return new Grid($cells, $align, 'baseline', true, $gaps, true, array_fill(0, max(0, count($cells) - 1), Grid::JOT));
     }
 
     /** $cell with its leading operator, if the cell starts with one (seen through Fallback, DisplayStyle, TexSource and Color), given the infix form. */
@@ -473,18 +474,34 @@ final class Math
     }
 
     /**
-     * The notes of every Fallback in the tree, depth first in reading order.
+     * The notes of every Fallback in the tree, depth first in reading order; a note shared by several nodes is listed once.
      *
      * @return list<MathNote>
      */
     public static function notes(Node $node): array
+    {
+        $found = new \SplObjectStorage();
+        $notes = [];
+        foreach (self::collectNotes($node) as $note) {
+            // A note shared by several Fallbacks (each dropped `\\` carries the first one's) is listed once.
+            if (! $found->offsetExists($note)) {
+                $found->offsetSet($note);
+                $notes[] = $note;
+            }
+        }
+
+        return $notes;
+    }
+
+    /** @return list<MathNote> */
+    private static function collectNotes(Node $node): array
     {
         $notes = [];
         if ($node instanceof Fallback) {
             $notes[] = $node->note;
         }
         foreach ($node->children() as $child) {
-            array_push($notes, ...self::notes($child));
+            array_push($notes, ...self::collectNotes($child));
         }
 
         return $notes;

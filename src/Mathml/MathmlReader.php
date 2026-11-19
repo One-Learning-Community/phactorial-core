@@ -67,7 +67,7 @@ final class MathmlReader
 
     /** Table attributes that are noted, not drawn, per element (columnalign/rowalign on the mtable itself are honored). */
     private const IGNORED = [
-        'mtable' => ['columnlines', 'rowlines', 'frame', 'rowspacing', 'columnwidth', 'equalrows', 'equalcolumns', 'align', 'groupalign'],
+        'mtable' => ['columnlines', 'rowlines', 'frame', 'columnwidth', 'equalrows', 'equalcolumns', 'align', 'groupalign'],
         'mtr' => ['columnalign', 'rowalign'],
         'mtd' => ['rowspan', 'columnspan', 'columnalign', 'rowalign'],
     ];
@@ -457,6 +457,19 @@ final class MathmlReader
                 $ignored[] = ['mtable', 'columnspacing', $where];
             }
         }
+        // MathML's rowspacing is the whole gap and defaults to 1ex; the grid's own strut is that default, so only the difference is extra.
+        $rowSpacing = [];
+        foreach (preg_split('/\s+/', trim($e->getAttribute('rowspacing') ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $token) {
+            $em = self::width($token);
+            if ($em === null) {
+                $ignored[] = ['mtable', 'rowspacing', $where];
+            }
+            $rowSpacing[] = $em === null ? 0.0 : round($em - Grid::MATHML_ROW_SPACING, 4);
+        }
+        // The last entry repeats, as columnspacing's does.
+        while ($rowSpacing !== [] && count($rowSpacing) < count($rows) - 1) {
+            $rowSpacing[] = $rowSpacing[array_key_last($rowSpacing)];
+        }
         $ignored = array_values(array_unique($ignored, SORT_REGULAR));
 
         $grid = new Grid(
@@ -465,6 +478,7 @@ final class MathmlReader
             self::rowAlign($e->getAttribute('rowalign')),
             self::bool($e, 'displaystyle') ?? false,
             $spacing,
+            rowSpacing: $rowSpacing,
         );
         $node = $grid;
         if ($labeled) {

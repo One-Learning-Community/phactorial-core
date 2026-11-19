@@ -244,6 +244,17 @@ final class UnderOver extends Node
 
         // Plain parts first: the widths the stretchy ones stretch to.
         $baseBox = $baseStretch ? null : $this->base->layout($c);
+        // A stretchy part spans the base operator's drawn glyph, not its box with the spacing: that goes around the whole stack.
+        $reach = $this->stretchyPart($overKind, $overOp, $underKind, $underOp);
+        $spaceL = 0.0;
+        $spaceR = 0.0;
+        if ($reach && $baseOp !== null && ! $baseStretch) {
+            // All three widths come from the operator itself, so the split stays right for a base wrapped in a Row, Color or Fallback.
+            $bare = $baseOp->withSpaces(0.0, 0.0)->layout($c);
+            $spaceL = $baseOp->withSpaces($baseOp->lspace, 0.0)->layout($c)->width - $bare->width;
+            $spaceR = max(0.0, $baseOp->layout($c)->width - $bare->width - $spaceL);
+            $baseBox = self::tinted($bare, $this->base);
+        }
         $overBox = $overKind === 'plain' && $this->over !== null ? $this->over->layout($c->script()) : null;
         $underBox = $underKind === 'plain' && $this->under !== null ? $this->under->layout($c->script()) : null;
         // An accent that is not an operator stays at the base's level and does not stretch, so it counts as plain here.
@@ -280,18 +291,18 @@ final class UnderOver extends Node
         }
         // Stretchy parts stretch to the widest child that does not stretch.
         $overAnchor = 0.0;
-        $overChar = $overOp?->char;
+        $overChar = $overOp?->drawnChar();
         if ($overOp !== null && $overKind === 'accent') {
-            $overChar = self::combiningForm($c, $overOp, $widest) ?? $overOp->char;
+            $overChar = self::combiningForm($c, $overOp, $widest) ?? $overOp->drawnChar();
         }
         if ($overOp !== null && ($overKind === 'accent' || $overKind === 'stretch')) {
-            [$overBox, $overAnchor] = self::stretched($c, $overChar ?? $overOp->char, $overOp->stretchy === false ? 0.0 : $widest);
+            [$overBox, $overAnchor] = self::stretched($c, $overChar ?? $overOp->drawnChar(), $overOp->stretchy === false ? 0.0 : $widest);
             $overBox = self::tinted($overBox, $this->over);
         } elseif ($overKind === 'accent' && $overBox !== null) {
             $overAnchor = $overBox->width / 2;
         }
         if ($underOp !== null && ($underKind === 'accent' || $underKind === 'stretch')) {
-            [$underBox] = self::stretched($c, $underOp->char, $widest);
+            [$underBox] = self::stretched($c, $underOp->drawnChar(), $widest);
             $underBox = self::tinted($underBox, $this->under);
         }
 
@@ -338,6 +349,12 @@ final class UnderOver extends Node
         }
 
         $out = self::assemble($parts, $wb, $asc, $desc, $rules);
+        if ($spaceL > 0.0 || $spaceR > 0.0) {
+            $spaced = new Box($out->width + $spaceL + $spaceR, $out->ascent, $out->descent);
+            $spaced->place($out, $spaceL, 0.0);
+
+            return $spaced;
+        }
         if ($baseOp !== null && $baseStretch) {
             // The stretched operator keeps the spacing the dictionary gives an infix operator, as an arrow between operands does.
             $e = OperatorDictionary::lookup($baseOp->char, OperatorDictionary::FORM_INFIX);
@@ -349,6 +366,14 @@ final class UnderOver extends Node
         }
 
         return $out;
+    }
+
+    /** Whether the over or under part is an operator that stretches to the base. */
+    private function stretchyPart(string $overKind, ?Operator $overOp, string $underKind, ?Operator $underOp): bool
+    {
+        $stretches = static fn (string $kind, ?Operator $op): bool => $op !== null && $op->stretchy !== false && ($kind === 'accent' || $kind === 'stretch');
+
+        return $stretches($overKind, $overOp) || $stretches($underKind, $underOp);
     }
 
     /** $box in the color of the Color wrappers around $part, which stack() skips when it draws an operator from its character. */

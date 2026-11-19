@@ -129,10 +129,10 @@ final class TexFinalReviewTest extends TestCase
     public function test_a_note_from_a_macro_points_at_its_first_use(): void
     {
         self::assertSame(
-            ['\color: unknown color `red!50`; drawn in the default color @offset 32'],
-            self::notes('\newcommand{\c}{\color{red!50}} \c x \c y \color{red!50} z'),
+            ['\color: unknown color `Salmon`; drawn in the default color @offset 32'],
+            self::notes('\newcommand{\c}{\color{Salmon}} \c x \c y \color{Salmon} z'),
         );
-        self::assertSame(['\textcolor: unknown color `red!50`; drawn in the default color @offset 0'], self::notes('\textcolor{red!50}{\textcolor{red!50}{x}}'));
+        self::assertSame(['\textcolor: unknown color `Salmon`; drawn in the default color @offset 0'], self::notes('\textcolor{Salmon}{\textcolor{Salmon}{x}}'));
     }
 
     // D1
@@ -226,8 +226,8 @@ final class TexFinalReviewTest extends TestCase
     public function test_notes_of_a_dropped_trailing_row_come_in_source_order(): void
     {
         self::assertSame(
-            ['\\\\: row spacing is not drawn @offset 17', '\color: unknown color `red!50`; drawn in the default color @offset 25'],
-            self::notes('\begin{matrix} a \\\\[1em] \color{red!50} \end{matrix}'),
+            ['\\\\: row spacing is not drawn @offset 17', '\hline: row rules are not drawn @offset 25'],
+            self::notes('\begin{matrix} a \\\\[1em] \hline \end{matrix}'),
         );
     }
 

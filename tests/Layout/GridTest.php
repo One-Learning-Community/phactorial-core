@@ -90,7 +90,7 @@ final class GridTest extends TestCase
         $box = self::lay(new Grid([[$f1], [$f2]]));
         $rules = array_values(array_filter($box->items, static fn ($i): bool => $i instanceof Rule));
         // Fraction bars sit at the same height above each cell's baseline.
-        $expect = self::lay($f1, false)->descent + self::lay($f2, false)->ascent + 0.1 * 12;
+        $expect = max(self::lay($f1, false)->descent, 0.36 * 12) + max(self::lay($f2, false)->ascent, 0.84 * 12);
         $this->assertGreaterThan(14.4, $expect);
         $this->assertCount(2, $rules);
         $this->assertEqualsWithDelta($expect, $rules[1]->y - $rules[0]->y, 1e-9);
@@ -295,5 +295,158 @@ final class GridTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         new Grid([[Math::row('a'), Math::row('b')]], columnSpacing: [-0.1]);
+    }
+
+    private static function height(string $tex): float
+    {
+        $box = Math::layout(\Phactorial\Tex\TexReader::read($tex)->node, 18.0, true);
+
+        return $box->ascent + $box->descent;
+    }
+
+    public function test_a_matrix_row_has_the_array_strut(): void
+    {
+        self::assertEqualsWithDelta(2.4 * 18, self::height('\begin{matrix} a & b \\\\ c & d \end{matrix}'), 1e-6);
+        self::assertEqualsWithDelta(2.4 * 18, self::height('\begin{matrix} a & \\\\ & d \end{matrix}'), 1e-6);
+    }
+
+    public function test_an_alignment_adds_jot_between_rows(): void
+    {
+        self::assertEqualsWithDelta(2.7 * 18, self::height('\begin{aligned} a &= b \\\\ c &= d \end{aligned}'), 1e-6);
+    }
+
+    public function test_tall_content_grows_its_row(): void
+    {
+        self::assertGreaterThan(self::height('\begin{matrix} a \\\\ c \end{matrix}') + 0.2 * 18, self::height('\begin{matrix} \frac{a}{b} \\\\ c \end{matrix}'));
+    }
+
+    public function test_row_spacing_is_drawn(): void
+    {
+        $base = self::height('\begin{matrix} a \\\\ b \end{matrix}');
+        self::assertEqualsWithDelta($base + 18, self::height('\begin{matrix} a \\\\[1em] b \end{matrix}'), 1e-6);
+        self::assertEqualsWithDelta($base + 18, self::height('\begin{matrix} a \\\\[10pt] b \end{matrix}'), 1e-6);
+        self::assertEqualsWithDelta($base + 18, self::height('\begin{matrix} a \\\\[18mu] b \end{matrix}'), 1e-6);
+        self::assertEqualsWithDelta($base - 0.2 * 18, self::height('\begin{matrix} a \\\\[-0.2em] b \end{matrix}'), 1e-6);
+        self::assertEqualsWithDelta($base + 18, self::height('\begin{matrix} a \\\\[1em] b \\\\ \end{matrix}'), 1e-6);
+    }
+
+    public function test_row_spacing_is_normalized_and_must_be_finite(): void
+    {
+        $rows = [[Math::row('a')], [Math::row('b')], [Math::row('c')]];
+        self::assertSame([0.0, 0.0], (new Grid($rows))->rowSpacing);
+        self::assertSame([0.5, 0.0], (new Grid($rows, rowSpacing: [0.5]))->rowSpacing);
+        self::assertSame([0.5, -1.0], (new Grid($rows, rowSpacing: [0.5, -1.0, 7.0]))->rowSpacing);
+        self::assertSame([], (new Grid([[Math::row('a')]], rowSpacing: [1.0]))->rowSpacing);
+        foreach ([NAN, INF, -INF] as $bad) {
+            try {
+                new Grid($rows, rowSpacing: [$bad]);
+                self::fail('expected an InvalidArgumentException');
+            } catch (\InvalidArgumentException $e) {
+                self::assertStringContainsString('Row spacing', $e->getMessage());
+            }
+        }
+    }
+
+    private static function boxOf(string $tex): Box
+    {
+        return Math::layout(\Phactorial\Tex\TexReader::read($tex)->node, 18.0, true);
+    }
+
+    public function test_a_large_negative_row_gap_keeps_the_box_over_the_ink(): void
+    {
+        $box = self::boxOf('\begin{matrix} a \\\\[-5em] b \end{matrix}');
+        self::assertGreaterThan(0.0, $box->ascent + $box->descent);
+        $glyphs = self::glyphs($box);
+        self::assertCount(2, $glyphs);
+        foreach ($glyphs as $g) {
+            self::assertGreaterThanOrEqual(-$box->ascent, $g->y);
+            self::assertLessThanOrEqual($box->descent, $g->y);
+        }
+        $svg = (new \Phactorial\Render\SvgRenderer(Math::stixTwoMath()))->render($box);
+        self::assertSame(1, preg_match('/height="([\d.]+)"/', $svg));
+    }
+
+    public function test_gathered_and_a_top_level_break_have_the_jot(): void
+    {
+        self::assertEqualsWithDelta(2.7 * 18, self::height('\begin{gathered} a \\\\ b \end{gathered}'), 1e-6);
+        self::assertEqualsWithDelta(2.7 * 18, self::height('a \\\\ b'), 1e-6);
+        self::assertEqualsWithDelta(2.7 * 18 + 18, self::height('\begin{gathered} a \\\\[1em] b \end{gathered}'), 1e-6);
+    }
+
+    public function test_the_jot_survives_mathml(): void
+    {
+        foreach (['\left( \begin{aligned} a&=b \\\\ c&=d \end{aligned} \right)', '\begin{aligned} a&=b \\\\[1em] c&=d \end{aligned}', '\left( \begin{gathered} a \\\\[2pt] b \end{gathered} \right)'] as $tex) {
+            $node = \Phactorial\Tex\TexReader::read($tex)->node;
+            $a = Math::layout($node, 18.0, true);
+            $b = Math::layout(\Phactorial\Mathml\MathmlReader::read(\Phactorial\Render\MathmlWriter::write($node))->node, 18.0, true);
+            self::assertEqualsWithDelta($a->width, $b->width, 0.05, $tex);
+            self::assertEqualsWithDelta($a->ascent + $a->descent, $b->ascent + $b->descent, 0.05, $tex);
+            $c = Math::layout(\Phactorial\Tex\TexReader::read(\Phactorial\Render\TexWriter::write($node))->node, 18.0, true);
+            self::assertEqualsWithDelta($a->width, $c->width, 0.05, $tex);
+            self::assertEqualsWithDelta($a->ascent + $a->descent, $c->ascent + $c->descent, 0.05, $tex);
+        }
+    }
+
+    public function test_an_external_mtable_rowspacing_is_drawn(): void
+    {
+        $h = static fn (string $attr): float => ($b = Math::layout(\Phactorial\Mathml\MathmlReader::read('<math><mtable' . $attr . '><mtr><mtd><mi>a</mi></mtd></mtr><mtr><mtd><mi>b</mi></mtd></mtr><mtr><mtd><mi>c</mi></mtd></mtr></mtable></math>')->node, 18.0, true))->ascent + $b->descent;
+        // MathML's rowspacing is the whole gap and defaults to 1ex (0.5em): that default is the strut look.
+        self::assertEqualsWithDelta($h(''), $h(' rowspacing="1ex"'), 1e-6);
+        self::assertEqualsWithDelta($h('') + 2 * 0.5 * 18, $h(' rowspacing="2ex"'), 1e-6);
+        self::assertEqualsWithDelta($h('') + 2 * 0.5 * 18, $h(' rowspacing="1em"'), 1e-6);
+        self::assertEqualsWithDelta($h('') + 0.5 * 18 + 0.2 * 18, $h(' rowspacing="1em 0.7em"'), 1e-6);
+        self::assertEqualsWithDelta($h('') - 2 * 0.1 * 18, $h(' rowspacing="0.4em"'), 1e-6);
+        $notes = \Phactorial\Mathml\MathmlReader::read('<math><mtable rowspacing="1em"><mtr><mtd><mi>a</mi></mtd></mtr></mtable></math>')->notes();
+        self::assertSame([], $notes);
+        $bad = \Phactorial\Mathml\MathmlReader::read('<math><mtable rowspacing="wide"><mtr><mtd><mi>a</mi></mtd></mtr></mtable></math>')->notes();
+        self::assertSame(['rowspacing is not drawn'], array_map(static fn ($n) => $n->reason, $bad));
+    }
+
+    public function test_mathml_row_spacing_writes_and_reads_the_same_gaps(): void
+    {
+        $grid = new Grid([[Math::row('a')], [Math::row('b')], [Math::row('c')]], rowSpacing: [0.3, -0.25]);
+        $back = \Phactorial\Mathml\MathmlReader::read(\Phactorial\Render\MathmlWriter::write($grid))->node;
+        self::assertInstanceOf(Grid::class, $back);
+        self::assertEqualsWithDelta([0.3, -0.25], $back->rowSpacing, 1e-9);
+        self::assertStringNotContainsString('rowspacing', \Phactorial\Render\MathmlWriter::write(new Grid([[Math::row('a')], [Math::row('b')]])));
+    }
+
+    public function test_script_grids_keep_the_old_row_rule(): void
+    {
+        $b = self::boxOf('\sum_{\substack{i<n\\\\j<m}} x');
+        self::assertEqualsWithDelta(16.569, $b->ascent, 0.01);
+        self::assertEqualsWithDelta(36.738, $b->descent, 0.01);
+        $b = self::boxOf('x^{\begin{subarray}{l} a\\\\b \end{subarray}}');
+        self::assertEqualsWithDelta(23.958, $b->ascent, 0.01);
+        self::assertEqualsWithDelta(0.18, $b->descent, 0.01);
+        // Row spacing still adds there.
+        $c = self::boxOf('x^{\begin{subarray}{l} a\\\\[1em] b \end{subarray}}');
+        self::assertGreaterThan($b->ascent + 5.0, $c->ascent);
+    }
+
+    public function test_a_malformed_dimension_changes_nothing(): void
+    {
+        $plain = self::height('\begin{matrix} a \\\\ b \end{matrix}');
+        foreach (['3zz', '1.5.3pt', '2.5.pt'] as $d) {
+            $tex = '\begin{matrix} a \\\\[' . $d . '] b \end{matrix}';
+            self::assertEqualsWithDelta($plain, self::height($tex), 1e-6, $d);
+            $notes = \Phactorial\Tex\TexReader::read($tex)->notes();
+            self::assertSame(['row spacing is not drawn'], array_map(static fn ($n) => $n->reason, $notes), $d);
+        }
+    }
+
+    public function test_a_trailing_or_leading_dot_dimension_is_tex(): void
+    {
+        $plain = self::height('\\begin{matrix} a \\\\ b \\end{matrix}');
+        self::assertEqualsWithDelta($plain + 0.2 * 18, self::height('\\begin{matrix} a \\\\[2.pt] b \\end{matrix}'), 1e-6);
+        self::assertEqualsWithDelta($plain + 0.5 * 18, self::height('\\begin{matrix} a \\\\[.5em] b \\end{matrix}'), 1e-6);
+        self::assertSame([], \Phactorial\Tex\TexReader::read('\\begin{matrix} a \\\\[2.pt] b \\end{matrix}')->notes());
+    }
+
+    public function test_a_dot_dimension_in_a_space_command_is_tex(): void
+    {
+        $w = static fn (string $tex): float => self::boxOf('a' . $tex . 'b')->width;
+        self::assertEqualsWithDelta($w('\\hspace{0.2em}'), $w('\\hspace{2.pt}'), 1e-9);
+        self::assertEqualsWithDelta($w('\\kern0.2em'), $w('\\kern2.pt'), 1e-9);
     }
 }

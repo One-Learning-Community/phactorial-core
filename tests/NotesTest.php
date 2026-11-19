@@ -25,6 +25,24 @@ final class NotesTest extends TestCase
         self::assertSame([$note], Math::notes($tree));
     }
 
+    public function test_a_note_shared_by_several_nodes_is_listed_once(): void
+    {
+        $a = new MathNote(NoteLevel::Approximated, 'mfoo', 'not drawn');
+        $b = new MathNote(NoteLevel::Approximated, 'mbar', 'not drawn');
+        $tree = Math::row(new Fallback(Math::row('x'), $a), new Fallback(Math::row('y'), $b), new Fallback(null, $a));
+
+        self::assertSame([$a, $b], Math::notes($tree));
+    }
+
+    public function test_distinct_notes_with_equal_content_are_both_listed(): void
+    {
+        $a = new MathNote(NoteLevel::Approximated, 'mfoo', 'not drawn');
+        $b = new MathNote(NoteLevel::Approximated, 'mfoo', 'not drawn');
+        $tree = Math::row(new Fallback(Math::row('x'), $a), new Fallback(Math::row('y'), $b));
+
+        self::assertSame([$a, $b], Math::notes($tree));
+    }
+
     public function test_no_notes_without_fallback(): void
     {
         foreach (Fixtures::all() as $name => $node) {

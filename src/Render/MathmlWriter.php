@@ -430,6 +430,9 @@ final class MathmlWriter
         if (array_any($g->columnSpacing, static fn (float $gap): bool => $gap !== 1.0)) {
             $attrs .= ' columnspacing="' . implode(' ', array_map(static fn (float $gap): string => rtrim(rtrim(number_format($gap, 4, '.', ''), '0'), '.') . 'em', $g->columnSpacing)) . '"';
         }
+        if (array_any($g->rowSpacing, static fn (float $gap): bool => $gap !== 0.0)) {
+            $attrs .= ' rowspacing="' . implode(' ', array_map(static fn (float $gap): string => rtrim(rtrim(number_format($gap + Grid::MATHML_ROW_SPACING, 4, '.', ''), '0'), '.') . 'em', $g->rowSpacing)) . '"';
+        }
         if ($g->rowAlign !== 'baseline') {
             $attrs .= ' rowalign="' . $g->rowAlign . '"';
         }

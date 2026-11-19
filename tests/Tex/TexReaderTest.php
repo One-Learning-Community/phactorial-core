@@ -651,13 +651,24 @@ final class TexReaderTest extends TestCase
         self::assertSame([], TexReader::read('\frac{a}{b} \sqrt{x} x^2 \frac{}{}')->notes());
     }
 
-    public function test_row_spacing_is_noted(): void
+    public function test_row_spacing_is_drawn_and_not_noted(): void
     {
-        $notes = TexReader::read('\begin{aligned} a &= b \\\\[4pt] c &= d \\\\[1em] e &= f \end{aligned}')->notes();
-        self::assertCount(1, $notes);
-        self::assertSame(['\\\\', NoteLevel::Approximated, 'row spacing is not drawn'], [$notes[0]->element, $notes[0]->level, $notes[0]->reason]);
-        self::assertCount(2, TexReader::read('a \\\\[2pt] b')->notes()); // and the break itself
+        self::assertSame([], TexReader::read('\begin{aligned} a &= b \\\\[4pt] c &= d \\\\[1em] e &= f \end{aligned}')->notes());
+        self::assertSame([], TexReader::read('\begin{matrix} a \\\\[4pt] b \end{matrix}')->notes());
         self::assertSame([], TexReader::read('\begin{aligned} a &= b \\\\ c &= d \end{aligned}')->notes());
+        $grid = TexReader::read('\begin{aligned} a &= b \\\\[4pt] c &= d \\\\[1em] e &= f \end{aligned}')->node;
+        self::assertInstanceOf(\Phactorial\Node\Grid::class, $grid);
+        self::assertEqualsWithDelta([0.7, 1.3], $grid->rowSpacing, 1e-9); // the explicit space and aligned's 0.3em jot
+    }
+
+    public function test_row_spacing_that_is_not_drawn_is_noted(): void
+    {
+        // A top-level `\\` that stacks rows draws its spacing; a dropped one, one after the last row, and one in a single equation do not.
+        self::assertCount(1, TexReader::read('a \\\\[2pt] b')->notes());
+        $notes = TexReader::read('x \\\\[2pt]')->notes();
+        self::assertSame(['\\\\', NoteLevel::Approximated, 'row spacing is not drawn'], [$notes[1]->element, $notes[1]->level, $notes[1]->reason]);
+        $notes = TexReader::read('\begin{equation} a \\\\[4pt] b \end{equation}')->notes();
+        self::assertContains('row spacing is not drawn', array_map(static fn ($n) => $n->reason, $notes));
     }
 
     public function test_dashed_column_rules_are_noted_like_rules(): void

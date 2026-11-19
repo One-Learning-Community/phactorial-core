@@ -29,6 +29,26 @@ final class Colors
         'navy' => '#000080', 'blue' => '#0000ff', 'teal' => '#008080', 'aqua' => '#00ffff',
     ];
 
+    /**
+     * The xcolor base names in the model xcolor defines each one in, for mixing. Mixing happens in a color's own model,
+     * so `cyan!50!red` (cmyk) and `red!50!cyan` (rgb) follow different paths, as in LaTeX.
+     *
+     * @var array<string, array{'rgb'|'cmyk'|'gray', list<int|float>}>
+     */
+    private const MODELS = [
+        'red' => ['rgb', [1, 0, 0]], 'green' => ['rgb', [0, 1, 0]], 'blue' => ['rgb', [0, 0, 1]],
+        'brown' => ['rgb', [.75, .5, .25]], 'lime' => ['rgb', [.75, 1, 0]], 'orange' => ['rgb', [1, .5, 0]],
+        'pink' => ['rgb', [1, .75, .75]], 'purple' => ['rgb', [.75, 0, .25]], 'teal' => ['rgb', [0, .5, .5]],
+        'violet' => ['rgb', [.5, 0, .5]],
+        'cyan' => ['cmyk', [1, 0, 0, 0]], 'magenta' => ['cmyk', [0, 1, 0, 0]], 'yellow' => ['cmyk', [0, 0, 1, 0]],
+        'olive' => ['cmyk', [0, 0, 1, .5]],
+        'black' => ['gray', [0]], 'darkgray' => ['gray', [.25]], 'gray' => ['gray', [.5]],
+        'lightgray' => ['gray', [.75]], 'white' => ['gray', [1]],
+    ];
+
+    /** A mixing percentage: digits with an optional fraction, or a bare fraction. */
+    private const PERCENT = '/^(?:\d+(?:\.\d*)?|\.\d+)$/D';
+
     private const FRACTION = '(?:[01]|[01]?\.\d+|[01]\.)';
 
     private function __construct() {}
@@ -40,7 +60,7 @@ final class Colors
     public static function tex(string $spec, ?string $model = null): ?string
     {
         if ($model === null) {
-            return self::XCOLOR[$spec] ?? self::hex($spec);
+            return self::XCOLOR[$spec] ?? self::hex($spec) ?? self::mix($spec);
         }
 
         return match ($model) {
@@ -80,6 +100,97 @@ final class Colors
     public static function isHex(string $color): bool
     {
         return preg_match('/^#[0-9a-f]{6}$/D', $color) === 1;
+    }
+
+    /**
+     * An xcolor mixing expression over the base names as #rrggbb, computed as xcolor computes it: `red!50` (a tint
+     * toward white), `red!30!blue`, chains, and leading minus signs for the complement of the whole result.
+     * Null for anything outside that grammar, including a percentage above 100.
+     */
+    private static function mix(string $spec): ?string
+    {
+        $minus = strspn($spec, '-');
+        $parts = explode('!', substr($spec, $minus));
+        if (count($parts) % 2 === 0) {
+            $parts[] = 'white';
+        }
+        $first = self::MODELS[$parts[0]] ?? null;
+        if ($first === null) {
+            return null;
+        }
+        [$model, $c] = self::convert($first[0], $first[1], $first[0]);
+        for ($i = 1; $i < count($parts); $i += 2) {
+            $next = self::MODELS[$parts[$i + 1]] ?? null;
+            if ($next === null || preg_match(self::PERCENT, $parts[$i]) !== 1 || (float) $parts[$i] > 100) {
+                return null;
+            }
+            // xcolor compares the percentage as a TeX dimension (65536sp to the point): at 0 the name replaces the
+            // color in its own model, at 100 nothing changes, and only between them does a conversion happen.
+            $sp = (int) round((float) $parts[$i] * 65536);
+            if ($sp === 0) {
+                [$model, $c] = self::convert($next[0], $next[1], $next[0]);
+                continue;
+            }
+            if ($sp === 100 * 65536) {
+                continue;
+            }
+            if ($model === 'gray' && $next[0] !== 'gray') {
+                [$model, $c] = self::convert($model, $c, $next[0]);
+            }
+            $n = self::convert($next[0], $next[1], $model)[1];
+            $p = (float) $parts[$i] / 100;
+            foreach ($c as $k => $v) {
+                $c[$k] = $p * $v + (1 - $p) * $n[$k];
+            }
+        }
+        if ($minus % 2 === 1) {
+            // xcolor complements cmyk through cmy (c + k, clipped), not channel by channel.
+            $c = $model === 'cmyk'
+                ? self::fromCmy([1 - min(1, $c[0] + $c[3]), 1 - min(1, $c[1] + $c[3]), 1 - min(1, $c[2] + $c[3])])
+                : array_map(static fn (float $v): float => 1 - $v, $c);
+        }
+        $out = '#';
+        foreach (self::convert($model, $c, 'rgb')[1] as $v) {
+            $n = (int) round($v * 100000);
+            $out .= sprintf('%02x', intdiv($n * 255 + 50000, 100000));
+        }
+
+        return $out;
+    }
+
+    /**
+     * A color from one xcolor model in another, with xcolor's formulas. Only the conversions mixing needs: gray to rgb
+     * or cmyk, cmyk to rgb, rgb to cmyk (undercolor removal and black generation at their defaults), and identity.
+     *
+     * @param 'rgb'|'cmyk'|'gray' $from
+     * @param list<int|float> $c
+     * @param 'rgb'|'cmyk'|'gray' $to
+     * @return array{'rgb'|'cmyk'|'gray', list<float>}
+     */
+    private static function convert(string $from, array $c, string $to): array
+    {
+        $out = match ($from . '>' . $to) {
+            'gray>rgb' => [$c[0], $c[0], $c[0]],
+            'gray>cmyk' => [0.0, 0.0, 0.0, 1 - $c[0]],
+            'cmyk>rgb' => [1 - min(1, $c[0] + $c[3]), 1 - min(1, $c[1] + $c[3]), 1 - min(1, $c[2] + $c[3])],
+            'rgb>cmyk' => self::fromCmy([1 - $c[0], 1 - $c[1], 1 - $c[2]]),
+            default => $c,
+        };
+
+        return [$to, array_map(floatval(...), $out)];
+    }
+
+    /**
+     * cmy as cmyk: k is the smallest channel and comes out of the other three.
+     *
+     * @param list<float> $cmy
+     * @return list<float>
+     */
+    private static function fromCmy(array $cmy): array
+    {
+        $k = min($cmy[0], $cmy[1], $cmy[2]);
+
+        return [max(0, min(1, $cmy[0] - $k)), max(0, min(1, $cmy[1] - $k)), max(0, min(1, $cmy[2] - $k)), $k];
     }
 
     /** #rgb or #rrggbb, in any case, as lowercase #rrggbb. */

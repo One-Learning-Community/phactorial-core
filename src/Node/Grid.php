@@ -9,10 +9,14 @@ use Phactorial\Layout\Context;
 
 /**
  * An equation grid (mtable): rows of cells in aligned columns, laid out the way TeX sets a matrix.
- * Columns are one em apart unless columnSpacing says otherwise, rows sit at least 1.2 em apart, and the whole grid is centered on the math axis.
+ * Columns are one em apart unless columnSpacing says otherwise, every row is at least as tall as TeX's array strut (0.84 em above the baseline, 0.36 em below) and rows stack with no gap beyond it, rowSpacing adds more after a row (the reader puts TeX's 0.3 em jot of aligned and gathered there), rows may overlap when it is negative, a script-size grid has no strut and keeps rows 1.2 em apart, and the whole grid is centered on the math axis.
  */
 final class Grid extends Node
 {
+    /** @internal Engine detail, not public API. TeX's \jot in em: the extra space between the lines of aligned and gathered. */
+    public const JOT = 0.3;
+    /** @internal Engine detail, not public API. MathML's default rowspacing, 1ex, in em (the MathML reader takes an ex as half an em). */
+    public const MATHML_ROW_SPACING = 0.5;
     /** @internal Engine detail, not public API. */
     public const COLUMN_ALIGN = ['left', 'center', 'right'];
     /** @internal Engine detail, not public API. */
@@ -24,6 +28,8 @@ final class Grid extends Node
     public readonly array $columnAlign;
     /** @var list<float> em between each pair of adjacent columns: one entry per gap */
     public readonly array $columnSpacing;
+    /** @var list<float> extra em after each row, as `\\[len]` gives: one entry per gap between rows, may be negative */
+    public readonly array $rowSpacing;
     public readonly int $columns;
 
     /**
@@ -33,8 +39,9 @@ final class Grid extends Node
      * @param bool $display lay the cells out in display style rather than text style
      * @param array<float> $columnSpacing em between adjacent columns, read in order; the last repeats, empty means 1.0
      * @param bool $alignment the columns are alignment points (aligned/align): writers that can say so use an equation array
+     * @param array<float> $rowSpacing extra em after each row, read in order; one entry per gap between rows, missing ones are 0 and extra ones are dropped
      *
-     * @throws \InvalidArgumentException for an unknown alignment or a negative or non-finite spacing
+     * @throws \InvalidArgumentException for an unknown alignment or a negative or non-finite column spacing or a non-finite row spacing
      *
      * @internal Engine detail, not public API.
      */
@@ -45,7 +52,14 @@ final class Grid extends Node
         public readonly bool $display = false,
         array $columnSpacing = [],
         public readonly bool $alignment = false,
+        array $rowSpacing = [],
     ) {
+        foreach ($rowSpacing as $g) {
+            // @phpstan-ignore function.alreadyNarrowedType
+            if (! in_array(get_debug_type($g), ['float', 'int'], true) || ! is_finite($g)) {
+                throw new \InvalidArgumentException('Row spacing must be a list of finite em values.');
+            }
+        }
         foreach ($columnSpacing as $g) {
             // The docblock says float; callers without static analysis can still pass anything (a string would be a TypeError).
             // @phpstan-ignore function.alreadyNarrowedType
@@ -87,9 +101,29 @@ final class Grid extends Node
             $gaps[] = $columnSpacing[$j] ?? ($columnSpacing === [] ? 1.0 : $columnSpacing[array_key_last($columnSpacing)]);
         }
         $this->columnSpacing = $gaps;
+        $rowSpacing = array_map(floatval(...), array_values($rowSpacing));
+        $between = [];
+        for ($i = 0; $i < count($rows) - 1; $i++) {
+            $between[] = $rowSpacing[$i] ?? 0.0;
+        }
+        $this->rowSpacing = $between;
         $this->rows = $padded;
         $this->columnAlign = $align;
         $this->columns = $columns;
+    }
+
+    /**
+     * The same grid with other row spacing.
+     *
+     * @param array<float> $rowSpacing as the constructor reads it
+     *
+     * @throws \InvalidArgumentException for a non-finite spacing
+     *
+     * @internal Engine detail, not public API.
+     */
+    public function withRowSpacing(array $rowSpacing): self
+    {
+        return new self($this->rows, $this->columnAlign, $this->rowAlign, $this->display, $this->columnSpacing, $this->alignment, $rowSpacing);
     }
 
     /**
@@ -117,13 +151,15 @@ final class Grid extends Node
         $em = $c->size();
         $axis = $c->k('axisHeight');
 
+        $strut = $c->level === 0;
         $boxes = [];
         $colW = array_fill(0, $this->columns, 0.0);
         $rowA = [];
         $rowD = [];
         foreach ($this->rows as $i => $row) {
-            $rowA[$i] = 0.0;
-            $rowD[$i] = 0.0;
+            // TeX's \@arstrut: 0.7 and 0.3 of a 1.2 em baseline skip, in every row. Scripts (\substack, subarray) have none.
+            $rowA[$i] = $strut ? 0.84 * $em : 0.0;
+            $rowD[$i] = $strut ? 0.36 * $em : 0.0;
             foreach ($row as $j => $cell) {
                 $b = $cell->layout($cc);
                 $boxes[$i][$j] = $b;
@@ -144,12 +180,19 @@ final class Grid extends Node
         $base = [];
         $y = 0.0;
         foreach ($this->rows as $i => $_) {
-            $y = $i === 0 ? 0.0 : $y + max(1.2 * $em, $rowD[$i - 1] + $rowA[$i] + 0.1 * $em);
+            if ($i > 0) {
+                $stack = $rowD[$i - 1] + $rowA[$i];
+                $y += ($strut ? $stack : max(1.2 * $em, $stack + 0.1 * $em)) + $this->rowSpacing[$i - 1] * $em;
+            }
             $base[$i] = $y;
         }
-        $last = count($this->rows) - 1;
-        $top = -$rowA[0];
-        $bottom = $base[$last] + $rowD[$last];
+        // Rows may overlap (a negative row spacing): the box covers the ink of all of them.
+        $top = 0.0;
+        $bottom = 0.0;
+        foreach ($this->rows as $i => $_) {
+            $top = $i === 0 ? $base[0] - $rowA[0] : min($top, $base[$i] - $rowA[$i]);
+            $bottom = $i === 0 ? $base[0] + $rowD[0] : max($bottom, $base[$i] + $rowD[$i]);
+        }
         $shift = -$axis - ($top + $bottom) / 2;
 
         $out = new Box();

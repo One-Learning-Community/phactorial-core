@@ -110,6 +110,7 @@ final class TexWriterTest extends TestCase
         self::assertSame('\qquad', self::tex(Math::space(2)));
         self::assertSame('\hspace{0.37em}', self::tex(Math::space(0.37)));
         self::assertSame('\hspace{-0.5em}', self::tex(Math::space(-0.5)));
+        self::assertSame('\mkern2mu', self::tex(Math::space(2 / 18)));
     }
 
     public function test_phantom_fractions_roots(): void
@@ -226,7 +227,8 @@ final class TexWriterTest extends TestCase
 
     public function test_display_grids_stay_display_grids(): void
     {
-        self::assertSame('\begin{gathered}a \\\\ b\end{gathered}', self::tex(new Grid([[Math::row('a')], [Math::row('b')]], ['center'], display: true)));
+        self::assertSame('\begin{gathered}a \\\\ b\end{gathered}', self::tex(new Grid([[Math::row('a')], [Math::row('b')]], ['center'], display: true, rowSpacing: [0.3])));
+        self::assertSame('\begin{darray}{c}a \\\\ b\end{darray}', self::tex(new Grid([[Math::row('a')], [Math::row('b')]], ['center'], display: true)));
         self::assertSame('\begin{darray}{ll}a & b\end{darray}', self::tex(new Grid([[Math::row('a'), Math::row('b')]], ['left', 'left'], display: true)));
     }
 
@@ -463,5 +465,16 @@ final class TexWriterTest extends TestCase
         }
         self::assertStringNotContainsString('stretchy', \Phactorial\Render\MathmlWriter::write($M::tex('\xrightarrow{f}')));
         self::assertStringContainsString('stretchy="true"', \Phactorial\Render\MathmlWriter::write($M::tex('\xlongequal{d}')));
+    }
+
+    public function test_row_spacing_is_written_in_em_and_round_trips(): void
+    {
+        $once = self::tex(\Phactorial\Math::tex('\begin{matrix} a \\\\[4pt] b \\\\ c \\\\[-0.25em] d \end{matrix}'));
+        self::assertSame('\begin{matrix}a \\\\[0.4em] b \\\\ c \\\\[-0.25em] d\end{matrix}', $once);
+        self::assertSame($once, self::tex(\Phactorial\Math::tex($once)));
+        $aligned = self::tex(\Phactorial\Math::tex('\begin{aligned} a &= b \\\\[1em] c &= d \end{aligned}'));
+        self::assertStringContainsString('\\\\[1em]', $aligned);
+        self::assertSame($aligned, self::tex(\Phactorial\Math::tex($aligned)));
+        self::assertStringNotContainsString('[', self::tex(\Phactorial\Math::tex('\begin{matrix} a \\\\[0pt] b \end{matrix}')));
     }
 }

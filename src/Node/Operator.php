@@ -20,8 +20,12 @@ final class Operator extends Node
 {
     public readonly string $char;
 
-    /** The widest explicit spacing, in mu, that script style keeps: the space of TeX's op class (relations, binaries and punctuation lose theirs). */
-    private const float SCRIPT_SPACE = 1.0;
+    /**
+     * The widest explicit spacing, in mu, that script style keeps: the space of TeX's op class (relations, binaries and punctuation lose theirs).
+     *
+     * @internal Engine detail, not public API; TexWriter::layoutSpacing() applies the same rule.
+     */
+    public const float SCRIPT_SPACE = 1.0;
 
     /**
      * Invalid UTF-8 in $char is replaced silently here; the Math builders also record a note.
@@ -108,6 +112,17 @@ final class Operator extends Node
         return $this->layoutAs($c, $this->form ?? OperatorDictionary::FORM_PREFIX);
     }
 
+    /**
+     * The character that is drawn. A hyphen-minus is drawn as the minus sign (U+2212), as Firefox, WebKit and MathJax do; the
+     * node keeps what was written.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public function drawnChar(): string
+    {
+        return $this->char === '-' ? "\u{2212}" : $this->char;
+    }
+
     /** @internal Engine detail, not public API. */
     public function layoutAs(Context $c, string $form): Box
     {
@@ -120,6 +135,7 @@ final class Operator extends Node
             $l = $this->lspace !== null ? ($this->lspace > self::SCRIPT_SPACE ? 0 : $l) : ($drops ? 0 : $l);
             $r = $this->rspace !== null ? ($this->rspace > self::SCRIPT_SPACE ? 0 : $r) : ($drops ? 0 : $r);
         }
+        $drawn = $this->drawnChar();
         if (mb_strlen($this->char) === 1) {
             // An explicit size wins over the display-style size of a large operator.
             $big = $this->minSize !== null || $this->maxSize !== null
@@ -129,7 +145,7 @@ final class Operator extends Node
                 return $big;
             }
         }
-        $glyphs = array_map(static fn (string $ch): array => [mb_ord($ch), $ch], mb_str_split($this->char));
+        $glyphs = array_map(static fn (string $ch): array => [mb_ord($ch), $ch], mb_str_split($drawn));
         $b = Run::build($c, $glyphs, $c->mu($l), $c->mu($r));
         if (! $this->isLargeop($form)) {
             $b->italic = 0.0; // a large operator keeps its italics correction: its superscript sits that far right of its subscript
@@ -144,9 +160,10 @@ final class Operator extends Node
      */
     private function displaySize(Context $c, float $lead, float $trail): ?Box
     {
-        $gid = $c->font->gid(mb_ord($this->char));
+        $drawn = $this->drawnChar();
+        $gid = $c->font->gid(mb_ord($drawn));
 
-        return $gid === 0 ? null : Stretcher::axisCentered($c, $this->char, $gid, (float) $c->font->math()->constant('displayOperatorMinHeight'), $lead, $trail, true);
+        return $gid === 0 ? null : Stretcher::axisCentered($c, $drawn, $gid, (float) $c->font->math()->constant('displayOperatorMinHeight'), $lead, $trail, true);
     }
 
     /**
@@ -155,7 +172,8 @@ final class Operator extends Node
     private function sizedBox(Context $c, float $lead, float $trail): ?Box
     {
         $f = $c->font;
-        $gid = $f->gid(mb_ord($this->char));
+        $drawn = $this->drawnChar();
+        $gid = $f->gid(mb_ord($drawn));
         if ($gid === 0) {
             return null;
         }
@@ -168,6 +186,6 @@ final class Operator extends Node
             $target = min($target, $this->maxSize * $f->unitsPerEm);
         }
 
-        return Stretcher::axisCentered($c, $this->char, $gid, $target, $lead, $trail, false);
+        return Stretcher::axisCentered($c, $drawn, $gid, $target, $lead, $trail, false);
     }
 }

@@ -203,6 +203,65 @@ final class UnderOverTest extends TestCase
         self::assertEqualsWithDelta($baseAttach, $hatAttach, 0.5);
     }
 
+    /** The width of a hat over an operator is the hat over the same glyph as an operand, plus the spacing a lone operator gets. */
+    #[DataProvider('operatorBases')]
+    public function test_hat_over_an_operator_stretches_to_the_glyph(string $op, string $operand): void
+    {
+        foreach ([true, false] as $display) {
+            $width = static fn (string $mathml): float => Math::layout(MathmlReader::read('<math>' . $mathml . '</math>')->node, 18.0, $display)->width;
+            $hat = static fn (string $base): string => '<mover accent="true">' . $base . '<mo>^</mo></mover>';
+            $spacing = $width('<mo>' . $op . '</mo>') - $width($operand);
+            self::assertEqualsWithDelta($width($hat($operand)) + $spacing, $width($hat('<mo>' . $op . '</mo>')), 0.05);
+            // The spacing goes around the stack once, between neighbors as around the bare operator.
+            self::assertEqualsWithDelta($width('<mi>a</mi>' . $hat($operand) . '<mi>b</mi>') + $spacing, $width('<mi>a</mi>' . $hat('<mo>' . $op . '</mo>') . '<mi>b</mi>'), 0.05);
+        }
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function operatorBases(): iterable
+    {
+        yield 'letter' => ['x', '<mi mathvariant="normal">x</mi>'];
+        yield 'relation' => ['=', '<mi>=</mi>'];
+    }
+
+    /** Stretch parts over an operator base lay out as their TeX writing reads back, and a non-stretchy accent keeps the spaced base. */
+    public function test_stretch_parts_over_an_operator_keep_their_width_through_tex(): void
+    {
+        foreach ([
+            '<munder><mo>x</mo><mo>&#x23DF;</mo></munder>',
+            '<mover><mo>x</mo><mo>&#x23DE;</mo></mover>',
+            '<mover accent="true"><mo>x</mo><mo>&#x2192;</mo></mover>',
+            '<mover><mo lspace="0.5em">&#x2192;</mo><mo>^</mo></mover>',
+            '<mover><mrow><mo>x</mo></mrow><mo>^</mo></mover>',
+            '<mover><mstyle mathcolor="red"><mo>x</mo></mstyle><mo>^</mo></mover>',
+        ] as $mathml) {
+            $node = MathmlReader::read('<math>' . $mathml . '</math>')->node;
+            $back = Math::tex(\Phactorial\Render\TexWriter::write($node));
+            foreach ([true, false] as $display) {
+                self::assertEqualsWithDelta(Math::layout($node, 18.0, $display)->width, Math::layout($back, 18.0, $display)->width, 0.05, $mathml);
+            }
+        }
+    }
+
+    public function test_a_wrapped_operator_base_spaces_like_a_bare_one(): void
+    {
+        $width = static fn (string $m, bool $d): float => Math::layout(MathmlReader::read('<math>' . $m . '</math>')->node, 18.0, $d)->width;
+        foreach ([true, false] as $display) {
+            $bare = $width('<mover><mo>x</mo><mo>^</mo></mover>', $display);
+            self::assertEqualsWithDelta($bare, $width('<mover><mrow><mo>x</mo></mrow><mo>^</mo></mover>', $display), 0.05);
+            self::assertEqualsWithDelta($bare, $width('<mover><mstyle mathcolor="red"><mo>x</mo></mstyle><mo>^</mo></mover>', $display), 0.05);
+        }
+    }
+
+    public function test_a_non_stretchy_accent_keeps_the_spaced_base(): void
+    {
+        foreach ([true, false] as $display) {
+            $node = MathmlReader::read('<math><mover><mo>x</mo><mo stretchy="false">^</mo></mover></math>')->node;
+            self::assertEqualsWithDelta(18.62, Math::layout($node, 18.0, $display)->width, 0.05);
+            self::assertSame('\hat{\: \mathop{x} \:}', \Phactorial\Render\TexWriter::write($node));
+        }
+    }
+
     public function test_wide_hat_stretches(): void
     {
         $narrow = self::glyphs(Math::layout(Math::hat('x'), self::SIZE))[1];

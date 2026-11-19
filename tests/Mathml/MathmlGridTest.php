@@ -96,7 +96,7 @@ final class MathmlGridTest extends TestCase
     public static function ignored(): array
     {
         $out = [];
-        foreach (['columnlines' => 'solid', 'rowlines' => 'solid', 'frame' => 'solid', 'rowspacing' => '2em', 'columnwidth' => 'auto', 'equalrows' => 'true', 'equalcolumns' => 'true', 'align' => 'top', 'groupalign' => 'left'] as $a => $v) {
+        foreach (['columnlines' => 'solid', 'rowlines' => 'solid', 'frame' => 'solid', 'columnwidth' => 'auto', 'equalrows' => 'true', 'equalcolumns' => 'true', 'align' => 'top', 'groupalign' => 'left'] as $a => $v) {
             $out["mtable $a"] = ['mtable', $a, $v];
         }
         foreach (['rowspan' => '2', 'columnspan' => '2'] as $a => $v) {

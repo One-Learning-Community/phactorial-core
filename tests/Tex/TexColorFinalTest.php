@@ -142,8 +142,8 @@ final class TexColorFinalTest extends TestCase
     /** @return iterable<string, array{string, string, string}> source, the plain twin, the reason its note gives */
     public static function classedWithNotes(): iterable
     {
-        yield 'a color with an unknown name' => ['a \\mathbin{\\textcolor{red!50}{x}} b', 'a \\mathbin{x} b', 'red!50'];
-        yield 'a switch with an unknown name' => ['a \\mathbin{\\color{red!50} x} b', 'a \\mathbin{x} b', 'red!50'];
+        yield 'a color with an unknown name' => ['a \\mathbin{\\textcolor{Salmon}{x}} b', 'a \\mathbin{x} b', 'Salmon'];
+        yield 'a switch with an unknown name' => ['a \\mathbin{\\color{Salmon} x} b', 'a \\mathbin{x} b', 'Salmon'];
         yield 'a box' => ['a \\mathbin{\\boxed{x}} b', 'a \\mathbin{x} b', 'the box is not drawn'];
     }
 

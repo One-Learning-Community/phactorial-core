@@ -21,9 +21,9 @@ final class ColorSwitchSpacingTest extends TestCase
     public static function twins(): iterable
     {
         yield 'unbraced switch' => ['a \color{red} + b', 'a + b'];
-        yield 'rejected unbraced switch' => ['a \color{red!50} + b', 'a + b'];
+        yield 'rejected unbraced switch' => ['a \color{Salmon} + b', 'a + b'];
         yield 'braced switch is an atom' => ['a {\color{red} + b}', 'a {+ b}'];
-        yield 'rejected braced switch is an atom' => ['a {\color{red!50} + b}', 'a {+ b}'];
+        yield 'rejected braced switch is an atom' => ['a {\color{Salmon} + b}', 'a {+ b}'];
     }
 
     #[DataProvider('twins')]
@@ -34,7 +34,7 @@ final class ColorSwitchSpacingTest extends TestCase
 
     public function test_a_rejected_switch_is_not_nested_in_mathml(): void
     {
-        $xml = MathmlWriter::write(Math::tex('a \color{red!50} + b'));
+        $xml = MathmlWriter::write(Math::tex('a \color{Salmon} + b'));
         self::assertSame(MathmlWriter::write(Math::tex('a + b')), $xml);
     }
 }
