@@ -514,8 +514,9 @@ final class UnderOverTest extends TestCase
         self::assertEqualsWithDelta($b->width, $a->width, 1e-9);
         self::assertEquals($b->items, $a->items);
         foreach (['max', 'min', 'sup', 'inf', 'det', 'gcd', 'Pr', 'liminf', 'limsup'] as $name) {
-            $node = new UnderOver(new Row([new Identifier($name, false)]), Math::row('i'), null);
-            self::assertEquals(Math::layout(new Scripts(new Identifier($name, false), Math::row('i'), null), self::SIZE, false)->items, Math::layout($node, self::SIZE, false)->items, $name);
+            // A function name, as the builders and the TeX reader make it; a plain upright word is no limit name.
+            $node = new UnderOver(new Row([new Identifier($name, false, true)]), Math::row('i'), null);
+            self::assertEquals(Math::layout(new Scripts(new Identifier($name, false, true), Math::row('i'), null), self::SIZE, false)->items, Math::layout($node, self::SIZE, false)->items, $name);
         }
     }
 

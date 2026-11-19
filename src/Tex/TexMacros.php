@@ -75,7 +75,7 @@ final class TexMacros
                     // Groups past the depth limit share the last scope; the reader draws them flat.
                     if ($over++ === 0 && ! $this->deepNoted) {
                         $this->deepNoted = true;
-                        $this->notes[] = [NoteLevel::Approximated, 'nesting', 'nested too deeply', $t[2]];
+                        $this->notes[] = [NoteLevel::Approximated, 'nesting', TexReader::NESTED_TOO_DEEPLY, $t[2]];
                     }
                 }
             } elseif ($t[0] === '}') {

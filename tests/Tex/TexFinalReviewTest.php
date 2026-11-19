@@ -51,8 +51,8 @@ final class TexFinalReviewTest extends TestCase
 
     public function test_operatorname_star_with_a_limit_reads_back_the_same_after_writing(): void
     {
-        self::assertSame('\underset{x}{\operatorname{argmax}} f', self::roundTrip('\operatorname*{argmax}_x f'));
-        self::assertSame('\underset{\theta}{\operatorname{argmax}} f', self::roundTrip('\operatorname*{argmax}_{\theta} f'));
+        self::assertSame('\operatorname*{argmax}_x f', self::roundTrip('\operatorname*{argmax}_x f'));
+        self::assertSame('\operatorname*{argmax}_\theta f', self::roundTrip('\operatorname*{argmax}_{\theta} f'));
     }
 
     // M2

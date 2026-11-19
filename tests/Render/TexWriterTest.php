@@ -151,8 +151,8 @@ final class TexWriterTest extends TestCase
 
     public function test_operatorname_star_spelling_only_for_an_under_limit(): void
     {
-        // Only the names TeX gives limits (lim, max, ...) take the starred spelling; others read back the same through \underset.
-        self::assertSame('\underset{x}{\operatorname{argmax}}', TexWriter::write(TexReader::read('\operatorname*{argmax}_x')->node));
+        // A starred name keeps its limits through \operatorname*; the names TeX gives limits (lim, max, ...) have their own spelling.
+        self::assertSame('\operatorname*{argmax}_x', TexWriter::write(TexReader::read('\operatorname*{argmax}_x')->node));
         self::assertSame('\liminf_x', TexWriter::write(TexReader::read('\operatorname*{liminf}_x')->node));
         self::assertSame('\overset{a}{\mathrm{xy}}', TexWriter::write(TexReader::read('\overset{a}{\mathrm{xy}}')->node));
     }

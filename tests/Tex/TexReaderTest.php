@@ -216,7 +216,7 @@ final class TexReaderTest extends TestCase
         self::same(new Scripts(new Identifier('lim', false, true), Math::row('x'), null), '\lim\nolimits_x');
         self::same(new Identifier('rank', false, true), '\operatorname{rank}');
         self::same(Math::sub(new Identifier('rank', false, true), 'n'), '\operatorname{rank}_n');
-        self::same(new UnderOver(new Identifier('argmax', false, true), Math::row('x'), null), '\operatorname*{argmax}_x');
+        self::same(new UnderOver(new Identifier('argmax', false, true, true), Math::row('x'), null), '\operatorname*{argmax}_x');
         self::same(new Identifier('sgn', false, true), '\operatorname{sgn}');
         self::same(new Row([new Identifier('sin', false, true), new Identifier('x')]), '\sin x');
     }
@@ -467,7 +467,7 @@ final class TexReaderTest extends TestCase
         $n = self::notes('a \middle| b');
         self::assertCount(1, $n);
         self::assertSame(NoteLevel::Approximated, $n[0]->level);
-        self::assertSame('\middle outside \left…\right', $n[0]->reason);
+        self::assertSame('\middle outside \left…\right is drawn as a plain delimiter', $n[0]->reason);
         $kids = self::childrenOf(Math::tex('a \middle| b'));
         self::assertInstanceOf(Fallback::class, $kids[1]);
         TreeAssert::assertSameTree(new Operator('|'), $kids[1]->content ?? new Row([]));

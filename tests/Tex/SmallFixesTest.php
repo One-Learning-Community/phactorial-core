@@ -90,9 +90,9 @@ final class SmallFixesTest extends TestCase
         self::assertSame('{{\displaystyle \lim}}_i', TexWriter::write(TexReader::read('{\displaystyle \lim}_i')->node));
     }
 
-    public function test_underscored_names_use_underset_unless_they_take_limits(): void
+    public function test_starred_names_keep_their_limits_and_the_standard_ones_use_their_own_spelling(): void
     {
-        self::assertSame('\underset{x}{\operatorname{foo}}', TexWriter::write(TexReader::read('\operatorname*{foo}_x')->node));
+        self::assertSame('\operatorname*{foo}_x', TexWriter::write(TexReader::read('\operatorname*{foo}_x')->node));
         self::assertSame('\liminf_x^2', TexWriter::write(TexReader::read('\operatorname*{liminf}_x^2')->node));
     }
 

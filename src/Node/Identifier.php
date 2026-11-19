@@ -7,6 +7,7 @@ namespace Phactorial\Node;
 use Phactorial\Layout\Box;
 use Phactorial\Layout\Context;
 use Phactorial\Layout\Run;
+use Phactorial\OperatorDictionary;
 use Phactorial\Styles;
 use Phactorial\Utf8;
 
@@ -17,6 +18,13 @@ final class Identifier extends Node
     public readonly bool $upright;
 
     public readonly string $name;
+
+    /**
+     * @internal Engine detail, not public API. Whether the name's limits sit beside it inline (and stack in display style):
+     * true for `\operatorname*`, false after `\limits`. Null is the default, which is true for the standard limit names
+     * (lim, max, ...) and false for any other name. A value equal to the default is stored as null, so one reading has one tree.
+     */
+    public readonly ?bool $movableLimits;
 
     /**
      * Invalid UTF-8 in $name is replaced silently here; the Math builders also record a note.
@@ -31,8 +39,11 @@ final class Identifier extends Node
         /** @internal Engine detail, not public API. */
         public readonly ?bool $italic = null,
         public readonly bool $function = false,
+        ?bool $movableLimits = null,
     ) {
         $this->name = Utf8::clean($name);
+        // Only a function name takes limits (an ordinary `\mathrm{max}` does not), and a value equal to the default is no value.
+        $this->movableLimits = ! $function || $movableLimits === OperatorDictionary::isLimitName($this->name) ? null : $movableLimits;
         $this->upright = $italic === null ? mb_strlen($this->name) > 1 : ! $italic;
     }
 

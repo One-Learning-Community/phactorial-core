@@ -49,6 +49,12 @@ final class TexReader
     public const int MAX_INPUT = 16_384;
     /** Nesting (groups, arguments, environments) beyond this is drawn flat. */
     public const int MAX_DEPTH = 256;
+    /**
+     * The reason of the note a formula nested past MAX_DEPTH gets; the writer reads it to tell a cut-off probe.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public const string NESTED_TOO_DEEPLY = 'nested too deeply';
     /** Macro expansions per formula. */
     public const int MAX_EXPANSIONS = 10_000;
     /**
@@ -156,6 +162,17 @@ final class TexReader
     public static function read(string $tex): TexResult
     {
         return self::readWithin($tex, self::effectiveDepth(self::nestingGuard(), self::stackDepth()));
+    }
+
+    /**
+     * Read with a nesting limit of $maxDepth, or less when the call stack leaves no room (see effectiveDepth()): a probe
+     * that cannot overflow Xdebug's guard, whatever depth its caller is at.
+     *
+     * @internal Engine detail, not public API.
+     */
+    public static function readUpTo(string $tex, int $maxDepth): TexResult
+    {
+        return self::readWithin($tex, min($maxDepth, self::effectiveDepth(self::nestingGuard(), self::stackDepth())));
     }
 
     /**
@@ -648,7 +665,7 @@ final class TexReader
             };
         }
 
-        return $this->note(NoteLevel::Approximated, $element, 'nested too deeply', $at, new Text(trim($src)));
+        return $this->note(NoteLevel::Approximated, $element, self::NESTED_TOO_DEEPLY, $at, new Text(trim($src)));
     }
 
     /**
@@ -867,6 +884,7 @@ final class TexReader
     {
         [$node, $kind, $meta] = $a;
         $limits = null;
+        $limitsAt = 0;
         $subs = [];
         $sups = [];
         $primes = 0;
@@ -895,6 +913,7 @@ final class TexReader
             } elseif ($t[0] === 'cs' && in_array($t[1], ['limits', 'nolimits', 'displaylimits'], true)) {
                 $this->c->p++;
                 $limits = $t[1];
+                $limitsAt = $t[2];
             } else {
                 break;
             }
@@ -919,8 +938,13 @@ final class TexReader
         if ($sub !== null || $sup !== null) {
             $stacked = match ($kind) {
                 'op', 'funclim' => $limits !== 'nolimits',
-                default => $limits === 'limits',
+                default => $limits === 'limits' || $limits === 'displaylimits',
             };
+            if ($stacked && ($limits === 'limits' || $limits === 'displaylimits')) {
+                $node = $this->limitsFlag($node, $limits === 'displaylimits', $limitsAt);
+            } elseif ($stacked && ($kind === 'op' || $kind === 'funclim')) {
+                $node = $this->limitsFlag($node, true);
+            }
             if (! $stacked && $node instanceof Scripts && $node->sub === null && $node->sup === null) {
                 // `\prescript{14}{6}{C}^{4+}`: the scripts join the prescripts already on the base.
                 $node = new Scripts($node->base, $sub, $sup, $node->preSub, $node->preSup);
@@ -931,8 +955,48 @@ final class TexReader
         if ($doubled !== null) {
             $node = $this->note(NoteLevel::Approximated, $doubled[0], $doubled[1], $doubled[2], $node);
         }
+        if ($limits !== null && self::classSpaced($a[0])) {
+            // TeX rejects a control after a class atom (`\mathrel{\sum}\limits`); the layout still follows it.
+            $node = $this->note(NoteLevel::Approximated, '\\' . $limits, 'a limit control must follow an operator', $limitsAt, $node);
+        }
 
         return $node;
+    }
+
+    /** Whether the node is a lone operator given a class's spacing (`\mathrel{\sum}`, also colored or negated), not an op atom's. */
+    private static function classSpaced(Node $n): bool
+    {
+        $lone = self::loneWrapped($n)[0];
+
+        return $lone instanceof Operator && ($lone->lspace !== null || $lone->rspace !== null)
+            && ! ($lone->lspace === 1.0 && $lone->rspace === 1.0);
+    }
+
+    /**
+     * `\limits` fixes an operator's or name's limits above and below, `\displaylimits` lets them move beside it inline, as in TeX for any base.
+     * The color around the symbol survives.
+     */
+    private function limitsFlag(Node $node, bool $movable, ?int $at = null): Node
+    {
+        [$lone, $rewrap] = self::loneWrapped($node);
+        if ($lone instanceof Identifier && $lone->upright && ! $lone->function) {
+            // TeX rejects a control after an ordinary atom (`\mathrm{max}\limits`); the word is read as the operator name it stands for.
+            if ($at === null) {
+                return $node;
+            }
+            // A word whose default already is the asked state (stacked, or movable) needs no change.
+            $name = $movable === OperatorDictionary::isLimitName($lone->name) && ! TexSymbols::isFunctionCommand($lone->name) ? $node : $rewrap(new Identifier($lone->name, $lone->italic, true, $movable));
+
+            return $this->note(NoteLevel::Approximated, $movable ? '\displaylimits' : '\limits', 'the control follows an ordinary atom, not an operator', $at, $name);
+        }
+        if ($lone instanceof Identifier && $lone->function && $lone->upright) {
+            return $rewrap(new Identifier($lone->name, $lone->italic, true, $movable));
+        }
+        if (! $lone instanceof Operator || $lone->hasMovableLimits(OperatorDictionary::FORM_PREFIX) === $movable) {
+            return $node;
+        }
+
+        return $rewrap($this->withOp($lone, movablelimits: $movable));
     }
 
     // ---------------------------------------------------------------- atoms
@@ -1083,13 +1147,13 @@ final class TexReader
         return new Identifier(implode('', array_map(static fn (string $ch): string => mb_chr(Styles::variant(mb_ord($ch), $variant)), mb_str_split($chars))), false);
     }
 
-    private function withOp(Operator $o, ?bool $stretchy = null, ?float $lspace = null, ?float $rspace = null): Operator
+    private function withOp(Operator $o, ?bool $stretchy = null, ?float $lspace = null, ?float $rspace = null, ?bool $movablelimits = null): Operator
     {
         return new Operator(
             $o->char,
             stretchy: $stretchy ?? $o->stretchy,
             largeop: $o->largeop,
-            movablelimits: $o->movablelimits,
+            movablelimits: $movablelimits ?? $o->movablelimits,
             form: $o->form,
             lspace: $lspace ?? $o->lspace,
             rspace: $rspace ?? $o->rspace,
@@ -1309,7 +1373,7 @@ final class TexReader
                     return null;
                 }
 
-                return [$this->note(NoteLevel::Approximated, '\\' . $name, $name === 'middle' ? '\\middle outside \\left…\\right' : '\\right without \\left', $at, $d === null || $d === '' ? null : new Operator($d)), 'ord', null];
+                return [$this->note(NoteLevel::Approximated, '\\' . $name, $name === 'middle' ? '\\middle outside \\left…\\right is drawn as a plain delimiter' : '\\right without \\left', $at, $d === null || $d === '' ? null : new Operator($d)), 'ord', null];
             case 'not':
                 return $this->negated($at);
             case 'mod':
@@ -1370,7 +1434,7 @@ final class TexReader
 
                 $dropped = [];
                 $text = trim($this->operatorName($dropped));
-                $node = new Identifier($text, false, true);
+                $node = new Identifier($text, false, true, $star ? true : null);
                 if ($dropped !== []) {
                     $node = $this->note(NoteLevel::Approximated, '\\operatorname', 'only letters and symbols are kept in the name (not ' . implode(', ', array_unique($dropped)) . ')', $at, $node);
                 }
@@ -1416,7 +1480,7 @@ final class TexReader
                     $this->c->p++;
                     $star = '*';
                 }
-                $label = preg_replace('/[{}\\\\#%$^_&~]/', '', $this->c->rawGroup()) ?? '';
+                $label = $this->tagLabel();
 
                 return [new TexSource($this->note(NoteLevel::Dropped, '\\tag', 'equation numbers are not drawn', $at), '\\tag' . $star . '{' . trim($label) . '}', ''), 'ord', null];
             case 'label':
@@ -1442,6 +1506,9 @@ final class TexReader
                 $kind = 'ord';
                 if ($op instanceof Operator && $op->isLargeop(OperatorDictionary::FORM_PREFIX)) {
                     $kind = $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX) ? 'op' : 'int';
+                } elseif ($op instanceof Identifier && $op->function && $op->upright && ($op->movableLimits ?? OperatorDictionary::isLimitName($op->name))) {
+                    // A colored limit name takes its limits like the bare one: above and below in display style.
+                    $kind = 'funclim';
                 }
 
                 return [new TexSource($node, '\\textcolor' . $spelling . '{', '}'), $kind, null];
@@ -1821,14 +1888,22 @@ final class TexReader
             return [$this->note(NoteLevel::Approximated, '\\' . $name, 'the class applies to a single symbol only', $at, $arg), $class === 'op' ? 'op' : 'ord', null];
         }
         [$l, $r] = TexClass::SPACING[$class];
+        if ($class === 'op' && $lone instanceof Identifier && $lone->upright && mb_strlen($lone->name) > 1 && (! $lone->function || $lone !== $arg || array_filter(mb_str_split($lone->name), static fn (string $ch): bool => TexSymbols::unstyle($ch) !== null) !== [])) {
+            // A colored or styled function name keeps its name, so the color, the style and its \limits read back as the limit name.
+            return [$rewrap($lone->function ? $lone : new Identifier($lone->name, $lone->italic, true)), 'funclim', null];
+        }
         // A large operator already is an op atom: \mathop{\int} spaces as \int does, with the dictionary's spacing.
         if ($class === 'op' && $lone instanceof Operator && $lone->lspace === null && $lone->rspace === null && $lone->isLargeop(OperatorDictionary::FORM_PREFIX)) {
-            return [$rewrap($lone), 'op', null];
+            // TeX's default for an op atom is \displaylimits: stacked in display style, beside inline.
+            return [$rewrap($lone->hasMovableLimits(OperatorDictionary::FORM_PREFIX) ? $lone : $this->withOp($lone, movablelimits: true)), 'op', null];
         }
         $spaced = $lone instanceof Operator ? $this->withOp($lone, lspace: (float) $l, rspace: (float) $r) : new Operator($char, lspace: (float) $l, rspace: (float) $r);
 
         // The color (and the source that spells it) around the symbol survives the class.
-        return [$rewrap($spaced), $class === 'op' && $spaced->isLargeop(OperatorDictionary::FORM_PREFIX) ? 'op' : 'ord', null];
+        // TeX's \mathop takes its limits as \displaylimits: above and below in display style, beside inline.
+        $isOp = $class === 'op' && mb_strlen($char) === 1;
+
+        return [$rewrap($spaced), $isOp ? 'op' : 'ord', null];
     }
 
     /**
@@ -1994,6 +2069,64 @@ final class TexReader
     }
 
     /**
+     * The label in \tag{...}: its characters. A symbol command (`\alpha`, `\dagger`) and an escaped `\% \# \& \_ \$` stay as
+     * written; formatting and unknown commands are dropped, and a color command takes its spec with it.
+     */
+    private function tagLabel(): string
+    {
+        $this->c->skipSp();
+        if (! $this->c->peekIs('{')) {
+            $t = $this->c->peek();
+            if ($t === null || $t[0] !== 'ch') {
+                return '';
+            }
+            $this->c->p++;
+
+            return preg_match('/[#%$^_&~]/', $t[1]) === 1 ? '' : $t[1];
+        }
+        $this->c->p++;
+        $s = '';
+        $depth = 1;
+        while (($t = $this->c->peek()) !== null) {
+            $this->c->p++;
+            if ($t[0] === '{') {
+                $depth++;
+            } elseif ($t[0] === '}' && --$depth === 0) {
+                break;
+            } elseif ($t[0] === 'cs') {
+                if ($t[1] === 'color' || $t[1] === 'textcolor') {
+                    $this->skipColorSpec();
+                } elseif (in_array($t[1], ['%', '#', '&', '_', '$'], true)) {
+                    $s .= '\\' . $t[1];
+                } elseif (ctype_alpha($t[1]) && TexSymbols::char($t[1]) !== null) {
+                    $s .= '\\' . $t[1];
+                }
+            } elseif ($t[0] === 'ch' || $t[0] === 'sp') {
+                $c = preg_match('/[#%$^_&~]/', $t[1]) === 1 ? '' : $t[1];
+                // A letter after a control word would fuse with it, whatever was dropped in between.
+                $s .= $c !== '' && ctype_alpha($c) && preg_match('/\\\\[A-Za-z]+$/', $s) === 1 ? ' ' . $c : $c;
+            }
+        }
+
+        return $s;
+    }
+
+    /** Skips the spec of \color or \textcolor: an optional `[model]`, then the group. */
+    private function skipColorSpec(): void
+    {
+        $this->c->skipSp();
+        if ($this->c->peekIs('ch', '[')) {
+            while (($t = $this->c->peek()) !== null && $t[0] !== '}') {
+                $this->c->p++;
+                if ($t[0] === 'ch' && $t[1] === ']') {
+                    break;
+                }
+            }
+        }
+        $this->c->rawGroup();
+    }
+
+    /**
      * The name in \operatorname{...}: its characters, with commands for symbols read as the symbol.
      *
      * @param list<string> $dropped the commands left out of the name (spacing and the like), as written
@@ -2034,6 +2167,12 @@ final class TexReader
     private function nameChar(array $t, array &$dropped): string
     {
         if ($t[0] === 'cs') {
+            if ($t[1] === 'color' || $t[1] === 'textcolor') {
+                $this->skipColorSpec(); // the color spec is not part of the name
+                $dropped[] = '\\' . $t[1];
+
+                return '';
+            }
             $char = TexSymbols::char($t[1]) ?? (in_array($t[1], ['_', '%', '$', '#', '&', '{', '}'], true) ? $t[1] : '');
             if ($char === '') {
                 $dropped[] = '\\' . $t[1];

@@ -96,7 +96,8 @@ final class MathmlWriter
     private static function plain0(Node $n): string
     {
         return match (true) {
-            $n instanceof Identifier => '<mi' . ($n->upright ? ' mathvariant="normal"' : '') . '>' . Xml::text($n->upright ? $n->name : self::plain($n->name)) . '</mi>',
+            // A standard function name that is not a function (`\mathrm{max}`) says so: the reader would take the name for one.
+            $n instanceof Identifier => '<mi' . ($n->upright ? ' mathvariant="normal"' : (mb_strlen($n->name) > 1 ? ' mathvariant="italic"' : '')) . (! $n->function && mb_strlen($n->name) > 1 && in_array($n->upright ? $n->name : self::plain($n->name), OperatorDictionary::FUNCTION_NAMES, true) ? ' data-function="false"' : '') . '>' . Xml::text($n->upright ? $n->name : self::plain($n->name)) . '</mi>',
             $n instanceof Number => '<mn>' . Xml::text($n->text) . '</mn>',
             // Alone, the layout treats an operator as prefix while a browser infers infix.
             $n instanceof Operator => self::operator($n, OperatorDictionary::FORM_PREFIX, OperatorDictionary::FORM_INFIX),
@@ -110,16 +111,36 @@ final class MathmlWriter
             $n instanceof Scripts => self::scripts($n),
             $n instanceof UnderOver => self::underOver($n),
             // Only a Middle that Fenced stretches does so in the layout; a browser must not stretch the others.
-            $n instanceof Middle => self::operator(new Operator($n->char, $n->stretches(), lspace: 3, rspace: 3), OperatorDictionary::FORM_INFIX, OperatorDictionary::FORM_INFIX),
+            $n instanceof Middle => self::middle($n),
             $n instanceof Fenced => self::fenced($n),
             $n instanceof Grid => self::grid($n),
             $n instanceof Row => self::row($n),
             $n instanceof DisplayStyle => '<mstyle displaystyle="' . ($n->display ? 'true' : 'false') . '">' . self::node($n->content) . '</mstyle>',
             $n instanceof Fallback => $n->content === null ? '' : self::plain0($n->content),
             $n instanceof TexSource => self::plain0($n->content),
-            $n instanceof Color => self::mstyle($n->color, self::node($n->content)),
+            $n instanceof Color => self::color($n),
             default => throw new \InvalidArgumentException('Unknown node ' . $n::class),
         };
+    }
+
+    /** A color around a Middle goes on its `mo`, which keeps `stretchy`; an `mstyle` around a plain `mo` would read back as a plain bar. */
+    private static function color(Color $c): string
+    {
+        $inner = $c->content;
+        while (($inner instanceof Fallback && $inner->content !== null) || $inner instanceof TexSource) {
+            $inner = $inner->content;
+        }
+        if ($inner instanceof Middle && Colors::isHex($c->color)) {
+            return self::middle($inner, $c->color);
+        }
+
+        return self::mstyle($c->color, self::node($c->content));
+    }
+
+    /** The `mo` of a Middle, with its color when it has one. */
+    private static function middle(Middle $m, ?string $color = null): string
+    {
+        return self::operator(new Operator($m->char, $m->stretches(), lspace: 3, rspace: 3), OperatorDictionary::FORM_INFIX, OperatorDictionary::FORM_INFIX, color: $color);
     }
 
     private static function mstyle(string $color, string $xml): string
@@ -165,10 +186,10 @@ final class MathmlWriter
      * @param string $inferred the form a browser infers from the position
      * @param bool $stretched the layout stretches this operator (part of a stack), so it is not told to stay put
      */
-    private static function operator(Operator $o, string $form, string $inferred, bool $fence = false, bool $stretched = false): string
+    private static function operator(Operator $o, string $form, string $inferred, bool $fence = false, bool $stretched = false, ?string $color = null): string
     {
         $form = $o->form ?? $form;
-        $attrs = $form !== $inferred ? ' form="' . $form . '"' : '';
+        $attrs = ($color !== null ? ' mathcolor="' . $color . '"' : '') . ($form !== $inferred ? ' form="' . $form . '"' : '');
         if ($fence) {
             $attrs .= ' stretchy="true"';
         } elseif ($o->minSize !== null || $o->maxSize !== null) {
@@ -237,7 +258,7 @@ final class MathmlWriter
                     // ApplyFunction goes between the name (with its scripts or limits) and what follows it.
                     ? self::plain0($child) . '<mo>&#x2061;</mo>'
                     : self::arrowApart($apart[$i] ?? null, self::node($child), $child);
-                $out .= $inline !== null && Fallback::color($child) === null ? self::mstyle($inline, $xml) : $xml;
+                $out .= $inline !== null && Fallback::color($child) === null ? ($op instanceof Middle && Colors::isHex($inline) ? self::middle($op, $inline) : self::mstyle($inline, $xml)) : $xml;
             }
         }
 
@@ -349,10 +370,19 @@ final class MathmlWriter
             return $op !== null ? self::styled($n, self::operator($op, OperatorDictionary::FORM_INFIX, OperatorDictionary::FORM_INFIX, false, true)) : self::slot($n);
         };
         $baseOp = UnderOver::operatorOf($u->base);
-        if (UnderOver::isLimitName($u->base)) {
+        $word = UnderOver::nameNode($u->base);
+        if ($word instanceof Identifier && ! $word->function) {
+            // An ordinary word (`\mathrm{max}`) stays one: as an mo the reader would take it for a function name.
+            $base = self::bare($u->base);
+        } elseif ($word instanceof Identifier && $word->movableLimits === false) {
+            // A standard limit name told to stack in every style.
+            $base = self::styled($u->base, '<mo movablelimits="false">' . Xml::text($word->name) . '</mo>');
+        } elseif (UnderOver::isLimitName($u->base)) {
             // Marked as an operator so a browser sets its limit beside it in inline style, as the SVG draws it.
             $name = UnderOver::nameNode($u->base);
-            $base = self::styled($u->base, '<mo movablelimits="true">' . Xml::text($name instanceof Identifier ? $name->name : ($name instanceof Operator ? $name->char : '')) . '</mo>');
+            // A one-letter name (`\operatorname*{E}`) is no dictionary operator, so an mo would get the default space around it.
+            $spaced = $name instanceof Identifier && mb_strlen($name->name) === 1 ? ' lspace="0" rspace="0"' : '';
+            $base = self::styled($u->base, '<mo movablelimits="true"' . $spaced . '>' . Xml::text($name instanceof Identifier ? $name->name : ($name instanceof Operator ? $name->char : '')) . '</mo>');
         } elseif ($baseOp !== null) {
             $stretches = $baseOp->stretchy ?? OperatorDictionary::lookup($baseOp->char, OperatorDictionary::FORM_POSTFIX)['stretchy'];
             $form = $baseOp->isLargeop(OperatorDictionary::FORM_PREFIX) ? OperatorDictionary::FORM_PREFIX : OperatorDictionary::FORM_INFIX;
@@ -414,21 +444,20 @@ final class MathmlWriter
         return '<mtable' . $attrs . '>' . $rows . '</mtable>';
     }
 
+    private const EMPTY_FENCE = '<mo fence="true" stretchy="true" lspace="0" rspace="0"></mo>';
+
     private static function fenced(Fenced $f): string
     {
         $out = '<mrow>';
-        if ($f->open !== '') {
-            $out .= self::operator(new Operator($f->open), OperatorDictionary::FORM_PREFIX, OperatorDictionary::FORM_PREFIX, true);
-        }
+        // The usual MathML for `\left.` and `\right.`: an empty stretchy fence (zero spacing, since a browser gives an empty mo the default space), so the reader can pair the side that is there.
+        $out .= $f->open !== '' ? self::operator(new Operator($f->open), OperatorDictionary::FORM_PREFIX, OperatorDictionary::FORM_PREFIX, true) : self::EMPTY_FENCE;
         $open = $f->open !== '';
         $close = $f->close !== '';
         $content = Fenced::edged(Fenced::stretchMiddles($f->content, 0.0), $open, $close);
         // A bare arrow alone between the delimiters is no row for edged() to mark, but it has the delimiters beside it too.
         $xml = self::node($content);
         $out .= Fallback::unwrap($content) instanceof UnderOver ? self::arrowApart(self::arrowDrops((new Row([$content]))->inFence($open, $close))[0] ?? null, $xml, $content) : $xml;
-        if ($f->close !== '') {
-            $out .= self::operator(new Operator($f->close), OperatorDictionary::FORM_POSTFIX, OperatorDictionary::FORM_POSTFIX, true);
-        }
+        $out .= $f->close !== '' ? self::operator(new Operator($f->close), OperatorDictionary::FORM_POSTFIX, OperatorDictionary::FORM_POSTFIX, true) : self::EMPTY_FENCE;
 
         return $out . '</mrow>';
     }

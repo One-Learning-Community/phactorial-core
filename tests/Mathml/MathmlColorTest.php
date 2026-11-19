@@ -157,7 +157,7 @@ final class MathmlColorTest extends TestCase
             new Color(new Row([new Middle('|'), new Identifier('b')]), '#ff0000', true),
         ]));
         $xml = MathmlWriter::write($tree);
-        self::assertStringContainsString('<mstyle mathcolor="#ff0000"><mo stretchy="true" lspace="0.1667em" rspace="0.1667em">|</mo></mstyle><mstyle mathcolor="#ff0000"><mi>b</mi></mstyle>', $xml);
+        self::assertStringContainsString('<mo mathcolor="#ff0000" stretchy="true" lspace="0.1667em" rspace="0.1667em">|</mo><mstyle mathcolor="#ff0000"><mi>b</mi></mstyle>', $xml);
         $stretched = Fenced::stretchMiddles($tree->content, 10.0);
         self::assertInstanceOf(Row::class, $stretched);
         self::assertInstanceOf(Color::class, $stretched->children[1]);
@@ -166,7 +166,7 @@ final class MathmlColorTest extends TestCase
 
         // From TeX the switch runs past \middle, so the Middle is spliced and stays stretchy.
         $xml = MathmlWriter::write(Math::tex('\left( a \color{red} \middle| b \right)'));
-        self::assertStringContainsString('<mstyle mathcolor="#ff0000"><mo stretchy="true" lspace="0.1667em" rspace="0.1667em">|</mo></mstyle>', $xml);
+        self::assertStringContainsString('<mo mathcolor="#ff0000" stretchy="true" lspace="0.1667em" rspace="0.1667em">|</mo>', $xml);
     }
 
     public function test_the_dropped_color_note_takes_its_path_from_the_color(): void

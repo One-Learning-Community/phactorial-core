@@ -209,7 +209,7 @@ final class Forms
             if (! self::spaceLike($children[$j])) {
                 $next = Fallback::unwrap($children[$j]);
 
-                return $next instanceof Operator && ! OperatorDictionary::isOpening($next->char);
+                return ($next instanceof Operator && ! OperatorDictionary::isOpening($next->char)) || $next instanceof Middle;
             }
         }
 

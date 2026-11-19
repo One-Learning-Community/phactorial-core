@@ -150,6 +150,10 @@ final class TextWriter
                     $out .= ' ';
                 }
                 $piece = self::node($child);
+                // A Middle's own spaces fold into the one an operator, a comma or an opening fence before it has written.
+                if ($op instanceof Middle && ($afterOpen || str_ends_with($out, ' '))) {
+                    $piece = ltrim($piece);
+                }
                 // Prescripts after a script would read as more scripts of it, so a space sets them off.
                 if ($op instanceof Scripts && ($op->preSub !== null || $op->preSup !== null) && $prev !== null && Fallback::unwrap($prev) instanceof Scripts && $out !== '' && ! str_ends_with($out, ' ') && ! str_starts_with($piece, ' ')) {
                     $out .= ' ';

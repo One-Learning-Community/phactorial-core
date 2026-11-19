@@ -98,7 +98,7 @@ final class TexColorFinalTest extends TestCase
         self::assertSame(self::positions(self::layout(Math::tex('\\mathop{\\int}_0^1 x'))), self::positions(self::layout(Math::tex($tex))));
 
         $written = TexWriter::write(Math::tex($tex));
-        self::assertSame('\\mathop{\\textcolor{red}{\\int}}\\limits_0^1 x', $written);
+        self::assertSame('\\mathop{\\textcolor{red}{\\int}}\\displaylimits_0^1 x', $written);
         self::assertSame($written, TexWriter::write(Math::tex($written)));
         self::assertSame(self::positions(self::layout(Math::tex($tex))), self::positions(self::layout(Math::tex($written))));
     }

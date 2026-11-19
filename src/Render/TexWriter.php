@@ -9,6 +9,7 @@ use Phactorial\Node\Color;
 use Phactorial\Node\DisplayStyle;
 use Phactorial\Node\Fallback;
 use Phactorial\Node\Fenced;
+use Phactorial\Node\Forms;
 use Phactorial\Node\Fraction;
 use Phactorial\Node\Grid;
 use Phactorial\Node\Identifier;
@@ -27,6 +28,7 @@ use Phactorial\Node\UnderOver;
 use Phactorial\OperatorDictionary;
 use Phactorial\Styles;
 use Phactorial\Tex\TexClass;
+use Phactorial\Tex\TexReader;
 use Phactorial\Tex\TexSymbols;
 
 /**
@@ -122,7 +124,7 @@ final class TexWriter
             $n instanceof TexSource => self::source($n, $inFence),
             $n instanceof Color => $n->inline
                 ? '{\color{' . $n->color . '} ' . self::w($n->content, false) . '}'
-                : '\textcolor{' . $n->color . '}{' . self::w($n->content, false) . '}',
+                : self::textcolor($n),
             $n instanceof Row => self::row($n, $inFence),
             $n instanceof Identifier => self::identifier($n),
             // A MathML-only number such as '1,000' is written raw: the nearest TeX.
@@ -137,12 +139,28 @@ final class TexWriter
                 : '{' . self::w($n->numerator, false) . ' \atop ' . self::w($n->denominator, false) . '}',
             $n instanceof Root => self::root($n),
             $n instanceof Scripts => self::scripts($n),
-            $n instanceof UnderOver => self::underOver($n)[0],
+            $n instanceof UnderOver => self::writeUnderOver($n),
             $n instanceof Fenced => self::fenced($n),
             $n instanceof Grid => self::gridBody($n, true),
             $n instanceof DisplayStyle => '{' . ($n->display ? '\displaystyle ' : '\textstyle ') . self::w($n->content, false) . '}',
             default => throw new \InvalidArgumentException('Unknown node ' . $n::class),
         };
+    }
+
+    /**
+     * `\textcolor`, with the kerns of a scripted or stacked operator outside the group, as operatorPiece() does for a bare one:
+     * the group would otherwise hold spacing that belongs to the operator's place in the row.
+     */
+    private static function textcolor(Color $c): string
+    {
+        $inner = self::w($c->content, false);
+        $content = self::strip($c->content);
+        $base = $content instanceof Scripts || $content instanceof UnderOver ? $content->base : null;
+        if ($base !== null && UnderOver::nameNode($base) instanceof Operator && preg_match('/^((?:\\\\mkern-?[0-9.]+mu )?)(.*?)((?: \\\\mkern-?[0-9.]+mu)?)$/s', $inner, $m) === 1) {
+            return $m[1] . '\textcolor{' . $c->color . '}{' . $m[2] . '}' . $m[3];
+        }
+
+        return '\textcolor{' . $c->color . '}{' . $inner . '}';
     }
 
     private static function row(Row $row, bool $inFence): string
@@ -155,15 +173,37 @@ final class TexWriter
         $afterNumber = false;
         $glued = [];
         $previous = null;
-        foreach ($row->children as $kid) {
+        // The form the position gives each operator: an explicit form is not written, so TeX re-derives it from position.
+        $forms = Forms::of(array_map(static function (Node $k): Node {
+            $o = self::strip($k);
+
+            return $o instanceof Operator && $o->form !== null ? $o->withForm(null) : $k;
+        }, $row->children));
+        $switchAt = $inFence ? self::colorSwitchAt($row->children) : null;
+        $current = null;
+        foreach ($row->children as $index => $kid) {
+            $color = null;
+            if ($switchAt !== null && $index >= $switchAt) {
+                // From the switch on, each child's color is written as a switch, which TeX reads to the end of the fence.
+                $outer = self::strip($kid);
+                if ($outer instanceof Color) {
+                    $color = $outer->color;
+                    $kid = $outer->content;
+                }
+            }
             $bare = self::strip($kid);
             if ($bare instanceof Row) {
                 $piece = self::modular($bare) ?? '{' . self::w($bare, false) . '}';
             } else {
-                $piece = self::w($kid, $inFence);
+                $piece = self::operatorPiece($kid, $forms[$index], $inFence) ?? self::w($kid, $inFence);
             }
             if ($piece === '') {
                 continue;
+            }
+            if ($color !== null && $color !== $current) {
+                // `\color{c}\middle|` has no space after the switch, as TeX-born text; any other piece takes one.
+                $piece = '\\color{' . $color . '}' . ($bare instanceof Middle ? '' : ' ') . $piece;
+                $current = $color;
             }
             if ($bare instanceof Scripts && ($bare->preSub !== null || $bare->preSup !== null) && $previous instanceof Scripts) {
                 // After scripts, a bare `{}_a X` would read as more scripts of the node before; a group of its own keeps them prescripts.
@@ -183,6 +223,31 @@ final class TexWriter
         }
 
         return $out;
+    }
+
+    /**
+     * Where a run of block-colored children, to the end of the row, starts when a Middle is in it, or null. That run is
+     * TeX's `\color{c}\middle| ...`, the one way to color a \middle (`\textcolor{c}{\middle|}` is a plain bar in TeX),
+     * and a later color change is another switch. An uncolored child after a colored Middle breaks the run (a switch
+     * would color it too), and the color stays around each child, as a plain bar.
+     *
+     * @param list<Node> $children
+     */
+    private static function colorSwitchAt(array $children): ?int
+    {
+        $start = count($children);
+        while ($start > 0 && ($c = self::strip($children[$start - 1])) instanceof Color && ! $c->inline) {
+            $start--;
+        }
+        for ($i = $start; $i < count($children); $i++) {
+            $c = self::strip($children[$i]);
+            $m = $c instanceof Color ? self::strip($c->content) : null;
+            if ($m instanceof Middle && TexSymbols::delimiter($m->char) !== null) {
+                return $start;
+            }
+        }
+
+        return null;
     }
 
     /** The row the reader builds for `\bmod`, `\mod{n}`, `\pmod{n}` or `\pod{n}`, written as that command; null for any other row. */
@@ -251,6 +316,9 @@ final class TexWriter
         $n = self::peel($n);
         if ($n instanceof Operator) {
             return new Operator($n->char);
+        }
+        if ($n instanceof Identifier) {
+            return $n;
         }
         if ($n instanceof Color) {
             $inner = self::withPlainSymbol($n->content);
@@ -387,11 +455,18 @@ final class TexWriter
 
             return self::italicSingle($chars[0]);
         }
+        $starred = $i->function && $i->movableLimits === true && array_filter($chars, static fn (string $ch): bool => TexSymbols::unstyle($ch) !== null) === [];
+        if ($starred && count($chars) === 1) {
+            return '\\operatorname*{' . self::operatorNameBody($i->name) . '}'; // one letter too: `\operatorname*{E}` moves its limits
+        }
         if (count($chars) === 1) {
             return self::uprightSingle($chars[0]);
         }
         if ($i->function && TexSymbols::isFunctionCommand($i->name)) {
             return '\\' . $i->name;
+        }
+        if ($starred) {
+            return '\\operatorname*{' . self::operatorNameBody($i->name) . '}';
         }
         // Runs of one math variant (or none) side by side.
         $runs = [];
@@ -540,17 +615,160 @@ final class TexWriter
             }
         }
         $sym = self::symbol($o->char);
-        // Only explicit spacing becomes an atom class. A form alone is MathML-only and is dropped.
-        $class = $o->lspace !== null && $o->rspace !== null ? self::classOf($o->lspace, $o->rspace, $o->char) : null;
+        // Only explicit spacing counts. A form alone is MathML-only and is dropped.
+        $core = $o === self::$edge;
+        [$class, $left, $right] = self::spacingPlan($o, self::$form, $core && self::$edgeLimits, false);
+        if ($class !== null) {
+            return '\\math' . $class . '{' . $sym . '}';
+        }
 
-        return $class === null ? $sym : '\\math' . $class . '{' . $sym . '}';
+        // The core of scripts or limits gets its kerns from the caller, outside the scripts, so a control stays next to the operator.
+        return $core ? $sym : self::kern($left, true) . $sym . self::kern($right, false);
+    }
+
+    // The three statics below are context for operator(), set only around one self::w() or self::base() call and restored in a
+    // finally block, so they never outlive it. $edge is matched by object identity, so only that one operator (never one in a
+    // script or a nested row) is written bare; $form is set only for a row child that is itself an operator.
+
+    /**
+     * An operator child of a row (possibly colored), written bare with its kerns outside any color group, so the group does not
+     * change the spacing around it. A letter whose spacing is not an identifier's is an op atom, since a bare letter reads back as
+     * an identifier. Null when the child is no operator, or needs nothing the plain writing does not give.
+     */
+    private static function operatorPiece(Node $kid, ?string $form, bool $inFence): ?string
+    {
+        $core = UnderOver::nameNode($kid);
+        if (! $core instanceof Operator) {
+            return null;
+        }
+        $piece = self::withEdge($core, false, static function () use ($kid, $inFence, $form): string {
+            $outer = self::$form;
+            self::$form = $form;
+            try {
+                return self::w($kid, $inFence);
+            } finally {
+                self::$form = $outer;
+            }
+        });
+        if (self::spacingPlan($core, $form, false, false)[0] !== null) {
+            return $piece; // written as a class, which carries the spacing itself
+        }
+        $letter = preg_match('/^\p{L}$/u', $core->char) === 1 && ! $core->isLargeop(OperatorDictionary::FORM_PREFIX);
+        if ($letter) {
+            $dict = OperatorDictionary::lookup($core->char, $core->form ?? $form ?? OperatorDictionary::FORM_PREFIX);
+            if (abs($core->lspace ?? $dict['lspace']) > self::SPACE_TOLERANCE || abs($core->rspace ?? $dict['rspace']) > self::SPACE_TOLERANCE) {
+                [, $l, $r] = self::spacingPlan($core, $form, false, true);
+
+                return self::kern($l, true) . '\mathop{' . $piece . '}' . self::kern($r, false);
+            }
+
+            return $piece;
+        }
+        [, $l, $r] = self::spacingPlan($core, $form, false, false);
+
+        return self::kern($l, true) . $piece . self::kern($r, false);
+    }
+
+    /**
+     * Spacing within this many mu is the same spacing: MathML writes em to four decimals (0.2778em is 5.0004mu), and other tools
+     * write three, so a difference below it is rounding, not a kern.
+     */
+    private const float SPACE_TOLERANCE = 0.01;
+
+    /**
+     * Runs $write with $edge and $edgeLimits set, and puts the previous values back whatever happens.
+     *
+     * @param \Closure(): string $write
+     */
+    private static function withEdge(?Operator $edge, bool $limits, \Closure $write): string
+    {
+        [$outerEdge, $outerLimits] = [self::$edge, self::$edgeLimits];
+        [self::$edge, self::$edgeLimits] = [$edge, $limits];
+        try {
+            return $write();
+        } finally {
+            [self::$edge, self::$edgeLimits] = [$outerEdge, $outerLimits];
+        }
+    }
+
+    /** The operator whose scripts or limits are being written: its kerns go around them, not around the symbol. */
+    private static ?Operator $edge = null;
+
+    /** Whether $edge takes limits, so a class that would lose them is not used. */
+    private static bool $edgeLimits = false;
+
+    /** The form the row's position gives the operator being written, when it sits in a row; an explicit form is not part of it. */
+    private static ?string $form = null;
+
+    /**
+     * How an operator's explicit spacing is written: an atom class when one gives the pair, else the difference from the spacing
+     * TeX gives the bare symbol (the dictionary's, or an op atom's 1 mu a side when written inside \mathop) as kerns.
+     * A side the source leaves out is the dictionary's. A limits base takes no class that would lose its limits.
+     *
+     * @return array{?string, float, float} class, left kern in mu, right kern in mu
+     */
+    private static function spacingPlan(Operator $o, ?string $form, bool $limits, bool $opAtom): array
+    {
+        // With spacing set, an explicit form changes only the node's own spacing: the reader gives the written symbol the form its
+        // position ($form, prefix for a script base) implies. A form alone is not written (the reader itself sets one in places
+        // such as an aligned cell), so it never calls for a kern.
+        $written = $form ?? OperatorDictionary::FORM_PREFIX;
+        $own = $o->form ?? $written;
+        if ($o->lspace === null && $o->rspace === null && ! $opAtom) {
+            return [null, 0.0, 0.0];
+        }
+        $dictOwn = OperatorDictionary::lookup($o->char, $own);
+        $dict = OperatorDictionary::lookup($o->char, $written);
+        $l = $o->lspace ?? $dictOwn['lspace'];
+        $r = $o->rspace ?? $dictOwn['rspace'];
+        if (! $opAtom) {
+            if (($o->lspace === null || $o->rspace === null) && abs($l - $dict['lspace']) < self::SPACE_TOLERANCE && abs($r - $dict['rspace']) < self::SPACE_TOLERANCE) {
+                return [null, 0.0, 0.0];
+            }
+            $class = self::classOf($l, $r, $o->char);
+            if ($class === 'op' && $o->isLargeop(OperatorDictionary::FORM_PREFIX)) {
+                $class = null; // the reader drops \mathop around a large operator it already takes as one, and with it the spacing
+            }
+            if ($class !== null && (! $limits || ($class === 'op' && ! $o->isLargeop(OperatorDictionary::FORM_PREFIX)))) {
+                return [$class, 0.0, 0.0];
+            }
+        }
+        [$bl, $br] = $opAtom ? [1.0, 1.0] : [(float) $dict['lspace'], (float) $dict['rspace']];
+
+        return [null, $l - $bl, $r - $br];
+    }
+
+    /** `\mkern<n>mu` for a nonzero amount, with a space on the side facing the symbol; '' for none. */
+    private static function kern(float $mu, bool $before): string
+    {
+        if (abs($mu) < self::SPACE_TOLERANCE) {
+            return '';
+        }
+        $num = rtrim(rtrim(number_format($mu, 4, '.', ''), '0'), '.');
+        $k = '\\mkern' . $num . 'mu';
+
+        return $before ? $k . ' ' : ' ' . $k;
+    }
+
+    /**
+     * The kerns to write before and after a core operator and its scripts or limits.
+     *
+     * @return array{string, string}
+     */
+    private static function edgeKerns(Operator $core, bool $limits, bool $opAtom): array
+    {
+        // A script or limits base is laid out as an operator first in its row (prefix), and so is the base read back from TeX,
+        // so no row form applies here.
+        [, $l, $r] = self::spacingPlan($core, null, $limits, $opAtom);
+
+        return [self::kern($l, true), self::kern($r, false)];
     }
 
     /** The TeX atom class that sets this much space before and after, or null when none does. */
     private static function classOf(float|int $l, float|int $r, string $char): ?string
     {
         foreach (TexClass::SPACING as $name => [$cl, $cr]) {
-            if (abs($cl - $l) > 1e-6 || abs($cr - $r) > 1e-6) {
+            if (abs($cl - $l) > self::SPACE_TOLERANCE || abs($cr - $r) > self::SPACE_TOLERANCE) {
                 continue;
             }
             if ($name === 'open' || $name === 'close' || $name === 'ord') {
@@ -605,6 +823,146 @@ final class TexWriter
         return preg_match('/^[^\\\\\s{}]$/u', $s) === 1 ? $s : '{' . $s . '}';
     }
 
+    /**
+     * How the limits of an operator or limit name behave: 'beside' (scripts), 'movable' (stacked in display style, beside inline)
+     * or 'stacked' (in every style). Null for anything else.
+     */
+    private static function limitsState(Node $n): ?string
+    {
+        $n = UnderOver::nameNode($n);
+        if ($n instanceof Scripts) {
+            return 'beside';
+        }
+        if (! $n instanceof UnderOver) {
+            return null;
+        }
+
+        return UnderOver::isLimitName($n->base) || UnderOver::operatorOf($n->base)?->hasMovableLimits(OperatorDictionary::FORM_PREFIX) === true ? 'movable' : 'stacked';
+    }
+
+    /**
+     * The one rule for the limits of an operator or limit name: write the base, ask the reader how that spelling takes its scripts with
+     * no control after it, and add \nolimits, \limits or \displaylimits when that differs from $state. A control follows a bare
+     * operator, so a color (or other wrapper) goes inside \mathop{...}. Null when the base is neither an operator that takes limits
+     * nor a limit name.
+     *
+     * @return ?array{string, bool, string, string} the base with its control, whether a control was added, and the kerns to write
+     *                                              before the base and after its scripts
+     */
+    private static function limitsBase(Node $base, string $state): ?array
+    {
+        $core = UnderOver::nameNode($base);
+        if ($core instanceof Operator) {
+            // A class wrapper (`\mathrel{\sum}`) keeps the spacing as the author wrote it, when its spelling takes the limits as asked.
+            $plain = self::spacingPlan($core, null, false, false)[0];
+            if ($plain !== null && $plain !== self::spacingPlan($core, null, true, false)[0]) {
+                $classed = self::limitsSpelling($base, $state, true);
+                // Only with no control: a limits control after a class atom (`\mathrel{\sum}\limits`) is not legal TeX.
+                if ($classed !== null && ! $classed[1] && ! $classed[2] && self::limitsStateOf($classed[0]) === $state) {
+                    return [$classed[0], $classed[1], '', ''];
+                }
+            }
+        }
+        $r = self::limitsSpelling($base, $state, false);
+        if ($r === null) {
+            return null;
+        }
+        // A wrapper class around the whole (`\mathrel{\mathop{x}_a}`) would give the exact spacing too, but the reader takes a class
+        // only on a single symbol, so it would not read back; the kerns do.
+        [$left, $right] = $core instanceof Operator ? self::edgeKerns($core, true, $r[2]) : ['', ''];
+
+        return [$r[0], $r[1], $left, $right];
+    }
+
+    /** The limits state of a spelling followed by a subscript, or null when unknown. */
+    private static function limitsStateOf(string $spelled): ?string
+    {
+        // The probe is pure, and a long formula spells the same few bases again and again.
+        if (array_key_exists($spelled, self::$probeMemo)) {
+            return self::$probeMemo[$spelled];
+        }
+        if (count(self::$probeMemo) >= self::PROBE_MEMO_SIZE) {
+            self::$probeMemo = [];
+        }
+        $state = self::probeLimitsState($spelled);
+        self::$probeMemo[$spelled] = $state;
+
+        return $state;
+    }
+
+    /** Most spellings the probe memo holds; it starts over when full. */
+    private const int PROBE_MEMO_SIZE = 256;
+
+    /** @var array<string, ?string> */
+    private static array $probeMemo = [];
+
+    private static function probeLimitsState(string $spelled): ?string
+    {
+        $probe = TexReader::readUpTo($spelled . '_a', TexReader::MAX_DEPTH);
+        foreach ($probe->notes() as $note) {
+            if ($note->reason === TexReader::NESTED_TOO_DEEPLY) {
+                return null;
+            }
+        }
+
+        return self::limitsState($probe->node);
+    }
+
+    /**
+     * @param bool $classAllowed write a class spelling the limits would lose (`\mathrel{\sum}`) as it is
+     * @return ?array{string, bool, bool} the spelling, whether a control was added, and whether a non-large operator sits in an
+     *                                    \mathop that gives it an op atom's spacing
+     */
+    private static function limitsSpelling(Node $base, string $state, bool $classAllowed): ?array
+    {
+        $core = UnderOver::nameNode($base);
+        if (! $core instanceof Operator && ! $core instanceof Identifier) {
+            return null; // nothing to ask of a spelling: and never write a subtree here that the caller writes again
+        }
+        $spelled = self::withEdge($core instanceof Operator ? $core : null, ! $classAllowed, static fn (): string => self::w($base, false));
+        $small = $core instanceof Operator && ! $core->isLargeop(OperatorDictionary::FORM_PREFIX);
+        $opAtom = $small && self::spacingPlan($core, null, true, false)[0] === 'op';
+        $letter = $core instanceof Operator && preg_match('/^\p{L}$/u', $core->char) === 1;
+        $movesAsOne = $core instanceof Operator && ($core->movablelimits === true || $letter) && mb_strlen($core->char) === 1;
+        $plainSymbol = $core instanceof Operator && ! $core->isLargeop(OperatorDictionary::FORM_PREFIX) && ! OperatorDictionary::lookup($core->char, OperatorDictionary::FORM_PREFIX)['movablelimits'];
+        if ($movesAsOne && $plainSymbol && ! str_contains($spelled, '\mathop{')) {
+            // A control follows an operator: a plain symbol that moves its limits (a lone `<mo movablelimits>`) is made one, and so is
+            // a letter, which written bare would read back as an identifier with an identifier's spacing.
+            $spelled = '\mathop{' . $spelled . '}';
+            $opAtom = true;
+        }
+        $relevant = match (true) {
+            $core instanceof Operator => $core->isLargeop(OperatorDictionary::FORM_PREFIX) || $core->hasMovableLimits(OperatorDictionary::FORM_PREFIX) || str_contains($spelled, '\mathop{'),
+            default => $core->function && $core->upright && ($core->movableLimits !== null || OperatorDictionary::isLimitName($core->name) || TexSymbols::isFunctionCommand($core->name)),
+        };
+        if (! $relevant) {
+            return null;
+        }
+        if ($core instanceof Identifier && self::peel($base) === $core && preg_match('~^\\\\(?:operatorname\*?|mathop)\{|^\\\\[A-Za-z]+$~', $spelled) !== 1) {
+            // A control follows an operator, not a math-alphabet group (`\mathbf{max}`): the name is made one.
+            $spelled = '\mathop{' . $spelled . '}';
+        }
+        $default = self::limitsStateOf($spelled);
+        if ($default === null) {
+            return null;
+        }
+        if ($default === $state) {
+            return [$spelled, false, $opAtom];
+        }
+        $wrapped = self::peel($base) !== $core;
+        if ($wrapped && $state === 'beside') {
+            // A group is an ordinary atom, so its scripts sit beside it: `{\textcolor{red}{\sum}}_i`, with no control after a wrapper.
+            return ['{' . $spelled . '}', true, $opAtom];
+        }
+        $control = ['beside' => '\nolimits', 'stacked' => '\limits', 'movable' => '\displaylimits'][$state];
+        if (! $wrapped) {
+            return [$spelled . $control, true, $opAtom];
+        }
+        $inner = self::withPlainSymbol($base);
+
+        return $inner === null ? null : ['\mathop{' . self::w($inner, false) . '}' . $control, true, $small];
+    }
+
     private static function scriptParts(?Node $sub, ?Node $sup): string
     {
         return ($sub === null ? '' : '_' . self::arg($sub)) . ($sup === null ? '' : '^' . self::arg($sup));
@@ -620,7 +978,7 @@ final class TexWriter
             // A fence is one atom only when written \left..\right (or as a matrix); a plain one is several.
             $p instanceof Fenced => TexSymbols::delimiter($p->open) !== null && TexSymbols::delimiter($p->close) !== null,
             $p instanceof Number => mb_strlen($p->text) === 1,
-            $p instanceof UnderOver => self::underOver($p)[1],
+            $p instanceof UnderOver => self::$underOverAtom[$p] ?? self::underOver($p)[1],
             default => false,
         };
         // A mixed-variant identifier is several groups side by side: not one atom.
@@ -683,19 +1041,23 @@ final class TexWriter
             // A control word ends at a space, not at the letter of the base after it.
             return $pre . (preg_match('/\\\\[a-zA-Z]+$/', $pre) === 1 ? ' ' : '') . $post;
         }
-        $op = UnderOver::operatorOf($s->base);
-        $nolimits = UnderOver::isLimitName($s->base) || ($op !== null && $op->isLargeop(OperatorDictionary::FORM_PREFIX) && $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX));
-        // `{\displaystyle \lim}\nolimits_i` is no TeX: the group stands for the operator, so its scripts simply follow it.
-        // Nor does `\textcolor{red}{\sum}\nolimits`: the control follows a bare operator, never a group or a color wrapper.
-        $written = self::peel($s->base);
-        if ($written instanceof DisplayStyle || $written instanceof Color || $written instanceof TexSource) {
-            $nolimits = false;
+        $limits = self::limitsBase($s->base, 'beside');
+        $controlled = $limits !== null && $limits[1];
+        $kernL = $kernR = '';
+        if ($controlled) {
+            [$base, , $kernL, $kernR] = $limits;
+        } else {
+            $core = UnderOver::nameNode($s->base);
+            $base = self::withEdge($core instanceof Operator ? $core : null, false, static fn (): string => self::base($s->base));
+            if ($core instanceof Operator) {
+                [$kernL, $kernR] = self::edgeKerns($core, false, false);
+            }
         }
 
         // Primes are written as apostrophes: KaTeX and LaTeX have no raw ″ ‴ ⁗.
         $sup = $s->sup;
         $primes = '';
-        if ($sup !== null && ! $nolimits) {
+        if ($sup !== null && ! $controlled) {
             $parts = $sup instanceof Row ? $sup->children : [$sup];
             $first = $parts[0] ?? null;
             if ($first instanceof Identifier && isset(self::MULTI_PRIMES[$first->name])) {
@@ -707,14 +1069,27 @@ final class TexWriter
 
         if ($primes !== '' && $sup !== null) {
             // KaTeX takes a superscript after primes only straight after them: f'^2_a, not f'_a^2.
-            return self::base($s->base) . $primes . '^' . self::arg($sup) . self::scriptParts($s->sub, null);
+            return $kernL . $base . $primes . '^' . self::arg($sup) . self::scriptParts($s->sub, null) . $kernR;
         }
 
-        return self::base($s->base) . $primes . ($nolimits ? '\nolimits' : '') . self::scriptParts($s->sub, $sup);
+        return $kernL . $base . $primes . self::scriptParts($s->sub, $sup) . $kernR;
     }
 
     /** Prime characters TeX has no symbol for, and how many apostrophes make them. */
     private const array MULTI_PRIMES = ['″' => 2, '‴' => 3, '⁗' => 4];
+
+    /** Whether the last spelling of each UnderOver is a single atom, so base() asks without writing it a second time. */
+    /** @var \WeakMap<UnderOver, bool>|null */
+    private static ?\WeakMap $underOverAtom = null;
+
+    private static function writeUnderOver(UnderOver $u): string
+    {
+        [$tex, $atom] = self::underOver($u);
+        self::$underOverAtom ??= new \WeakMap();
+        self::$underOverAtom[$u] = $atom;
+
+        return $tex;
+    }
 
     /**
      * @return array{string, bool} the TeX, and whether it is a single atom (no braces needed before a script)
@@ -727,19 +1102,8 @@ final class TexWriter
         $op = UnderOver::operatorOf($base);
         $plainFlags = ! $u->accent && ! $u->accentUnder;
 
-        if ($plainFlags && (UnderOver::isLimitName($base) || ($op !== null && ($op->isLargeop(OperatorDictionary::FORM_PREFIX) || $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX))))) {
-            $limits = $op !== null && ! UnderOver::isLimitName($base) && ! $op->hasMovableLimits(OperatorDictionary::FORM_PREFIX) ? '\limits' : '';
-            $written = self::peel($base);
-            if ($limits !== '' && ($written instanceof Color || $written instanceof TexSource || $written instanceof DisplayStyle)) {
-                // `\limits` follows a bare operator, never a color wrapper: `\mathop{\textcolor{red}{\int}}\limits`.
-                $inner = self::withPlainSymbol($base);
-                if ($inner !== null) {
-                    return ['\mathop{' . self::w($inner, false) . '}\limits' . self::scriptParts($under, $over), false];
-                }
-                $limits = '';
-            }
-
-            return [self::w($base, false) . $limits . self::scriptParts($under, $over), false];
+        if ($plainFlags && ($state = self::limitsState($u)) !== null && ($limits = self::limitsBase($base, $state)) !== null) {
+            return [$limits[2] . $limits[0] . self::scriptParts($under, $over) . $limits[3], false];
         }
 
         $overOp = UnderOver::operatorOf($over);
@@ -785,14 +1149,10 @@ final class TexWriter
 
             return ['\\' . TexSymbols::XARROWS[$op->char] . $label . '{' . ($over === null ? '' : self::w($over, false)) . '}', true];
         }
-        // A limit-taking name with no command of its own: \operatorname*{liminf}_x. Other names take \underset below, which reads back the same.
-        $name = self::peel($base);
-        if ($plainFlags && $under !== null && $name instanceof Identifier && $name->upright && in_array($name->name, OperatorDictionary::LIMIT_NAMES, true) && ! TexSymbols::isFunctionCommand($name->name)
-            && array_filter(mb_str_split($name->name), static fn (string $ch): bool => TexSymbols::unstyle($ch) !== null) === []) {
-            return ['\operatorname*{' . self::operatorNameBody($name->name) . '}' . self::scriptParts($under, $over), false];
-        }
-        // Anything else.
-        $s = self::w($base, false);
+        // Anything else. An operator's kerns go outside the stack, not inside the base.
+        $core = UnderOver::nameNode($base);
+        $s = self::withEdge($core instanceof Operator ? $core : null, false, static fn (): string => self::w($base, false));
+        [$kernL, $kernR] = $core instanceof Operator ? self::edgeKerns($core, false, false) : ['', ''];
         if (self::peel($base) instanceof UnderOver) {
             $s = '{' . $s . '}'; // a nested pair, not one node with both parts
         }
@@ -803,7 +1163,7 @@ final class TexWriter
             $s = '\underset{' . self::w($under, false) . '}{' . $s . '}';
         }
 
-        return [$s, true];
+        return [$kernL . $s . $kernR, $kernL === '' && $kernR === ''];
     }
 
     private static function fenced(Fenced $f): string
@@ -821,13 +1181,38 @@ final class TexWriter
         $open = TexSymbols::delimiter($f->open);
         $close = TexSymbols::delimiter($f->close);
         // \middle only works between \left and \right: in a plain fence the middles are plain symbols too.
-        $body = $inner instanceof Grid ? self::gridBody($inner, false) : self::w($f->content, $open !== null && $close !== null);
+        $content = self::colorSwitchContent($f->content);
+        $body = $inner instanceof Grid ? self::gridBody($inner, false) : self::w($content, $open !== null && $close !== null);
         if ($open === null || $close === null) {
             // A fence glyph with no \left spelling (a corner): plain symbols around the content, so the glyphs stay.
             return implode(' ', array_filter([self::symbol($f->open), $body, self::symbol($f->close)], static fn (string $p): bool => $p !== ''));
         }
 
         return '\left' . $open . ($body === '' ? ' ' : ' ' . $body . ' ') . '\right' . $close;
+    }
+
+    /**
+     * A block color that is the whole content of a fence and holds a Middle at its top level, as a row of colored children,
+     * so the row writes it as a switch (`\color{c} a \middle| b`); TeX has no other way to color a \middle.
+     */
+    private static function colorSwitchContent(Node $content): Node
+    {
+        $c = self::strip($content);
+        if (! $c instanceof Color || $c->inline) {
+            return $content;
+        }
+        $row = self::strip($c->content);
+        if (! $row instanceof Row) {
+            return $content;
+        }
+        foreach ($row->children as $child) {
+            $m = self::strip($child);
+            if ($m instanceof Middle && TexSymbols::delimiter($m->char) !== null) {
+                return new Row(array_map(static fn (Node $k): Node => new Color($k, $c->color), $row->children));
+            }
+        }
+
+        return $content;
     }
 
     private static function matrixEnvironment(Fenced $f, Grid $g): ?string
